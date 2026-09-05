@@ -7,6 +7,7 @@ import { createTranslator } from './translator.js';
 import { createWorkspaces } from './workspaces.js';
 import {drawerPlacement} from './placement.js';
 import {createFloatingFrame} from './floating.js';
+import {createConversationLayouts,type ToolKind} from './conversation-layouts.js';
 
 declare const __SIDECAR_ART_URL__: string;
 declare const __SIDECAR_WALLPAPER_URL__: string;
@@ -40,21 +41,27 @@ function nativeAnchor(win: Window): HTMLElement | null {
   }) ?? null;
 }
 
-interface PanelApi extends SidecarApi { show(view?:View):void }
-interface PanelOptions { tool?:'bookmarks'|'translation'; openTool?:(kind:'notes'|'bookmarks'|'translation')=>void; front?:()=>number }
+interface PanelApi extends SidecarApi { show(view?:View):void;activate(scope:string,open:boolean,inherit?:boolean):void }
+interface PanelOptions { tool?:'bookmarks'|'translation'; openTool?:(kind:'notes'|'bookmarks'|'translation')=>void; front?:()=>number;visibility?:(open:boolean)=>void }
 /** One bridge receiver owns all tool windows; each window keeps its own draft. */
 export function mountSidecar(win:Window):SidecarApi|null{
  win.__CODEX_SIDECAR__?.destroy();
- const panels=new Map<string,PanelApi>();let snapshot:Extract<HostMessage,{type:'snapshot'}>|undefined;let layer=2147483000;
+ const panels=new Map<ToolKind,PanelApi>();let snapshot:Extract<HostMessage,{type:'snapshot'}>|undefined;let layer=2147483000;
  const front=()=>++layer;
- const openTool=(kind:'notes'|'bookmarks'|'translation')=>{
-  if(kind==='notes'){primary?.show('notes');return;}
+ const ensure=(kind:'bookmarks'|'translation')=>{
   let panel=panels.get(kind);
-  if(!panel){panel=mountPanel(win,{tool:kind,front})??undefined;if(!panel)return;panels.set(kind,panel);if(snapshot)panel.receive(snapshot);}
-  panel.show();
+  if(!panel){panel=mountPanel(win,{tool:kind,front,visibility:value=>layouts.setOpen(kind,value)})??undefined;if(!panel)return;panels.set(kind,panel);if(snapshot)panel.receive(snapshot);panel.activate(layouts.scope,layouts.isOpen(kind),layouts.scope===initialScope);}
+  return panel;
  };
- const primary=mountPanel(win,{openTool,front});if(!primary)return null;
- const api:SidecarApi={receive(message){if(message.type==='snapshot')snapshot=message;primary.receive(message);for(const panel of panels.values())panel.receive(message);},destroy(){primary.destroy();for(const panel of panels.values())panel.destroy();panels.clear();if(win.__CODEX_SIDECAR__===api)delete win.__CODEX_SIDECAR__;}};
+ const openTool=(kind:ToolKind)=>{layouts.check();if(kind==='notes')primary?.show('notes');else ensure(kind)?.show();};
+ const primary=mountPanel(win,{openTool,front,visibility:value=>layouts.setOpen('notes',value)});if(!primary)return null;
+ const layouts=createConversationLayouts(win,scope=>{
+  primary.activate(scope,layouts.isOpen('notes'));
+  for(const kind of ['bookmarks','translation'] as const){const panel=panels.get(kind);if(panel)panel.activate(scope,layouts.isOpen(kind));else if(layouts.isOpen(kind))ensure(kind);}
+ });
+ const initialScope=layouts.scope;primary.activate(initialScope,layouts.isOpen('notes'),true);
+ for(const kind of ['bookmarks','translation'] as const)if(layouts.isOpen(kind))ensure(kind);
+ const api:SidecarApi={receive(message){if(message.type==='snapshot')snapshot=message;primary.receive(message);for(const panel of panels.values())panel.receive(message);},destroy(){layouts.destroy();primary.destroy();for(const panel of panels.values())panel.destroy();panels.clear();if(win.__CODEX_SIDECAR__===api)delete win.__CODEX_SIDECAR__;}};
  win.__CODEX_SIDECAR__=api;return api;
 }
 function mountPanel(win:Window,options:PanelOptions):PanelApi|null {
@@ -76,14 +83,12 @@ function mountPanel(win:Window,options:PanelOptions):PanelApi|null {
   let view: View = 'notes';
   let draft: Draft | null = null;
   let opened = false;
-  let pinned = false;
   let destroyed = false;
   let firstSnapshot = true;
   let sequence = 0;
   let refreshUntil = 0;
   let syncMessage = '';
   let hoverTimer: number | undefined;
-  let closeTimer: number | undefined;
   const timers = new Set<number>();
   const pending = new Map<string, { action: Action; timeout: number; done?: (message:Extract<HostMessage,{type:'result'}>) => void; fail?: (error:Error)=>void }>();
   const demo = win.__CODEX_SIDECAR_BOOT__?.demo === true;
@@ -132,9 +137,8 @@ function mountPanel(win:Window,options:PanelOptions):PanelApi|null {
   brand.append(element(document, 'h1', '', 'Sidecar'), tagline);
   const actions = element(document, 'div', 'header-actions');
   const settingsButton = button(document, 'Settings', 'settings-open', 'settings', 'icon-button');
-  const pinButton = button(document, 'Pin drawer', 'drawer-pin', 'pin', 'icon-button');
   const closeButton = button(document, 'Close', 'drawer-close', 'close', 'icon-button');
-  actions.append(settingsButton, pinButton, closeButton);
+  actions.append(settingsButton, closeButton);
   header.append(brandMark, brand, actions);
   const quotaSection = element(document, 'section', 'quota-section');
   quotaSection.dataset.testid = 'quota-summary';
@@ -155,7 +159,7 @@ function mountPanel(win:Window,options:PanelOptions):PanelApi|null {
     const tool=button(document,kind==='notes'?'便签':kind==='bookmarks'?'收藏':'翻译',`rail-${kind}`,kind==='notes'?'note':kind==='bookmarks'?'bookmark':'translate','icon-button');
     tool.onclick=()=>options.openTool?.(kind);rail.append(tool);
   }
-  if(options.tool){rail.hidden=true;pinButton.hidden=true;quotaSection.hidden=true;}
+  if(options.tool){rail.hidden=true;quotaSection.hidden=true;}
   root.append(chip, rail, drawer);
   shadow.append(style, root);
   document.body.append(host);
@@ -191,34 +195,22 @@ function mountPanel(win:Window,options:PanelOptions):PanelApi|null {
     content.querySelectorAll<HTMLButtonElement>('[data-testid="editor-save"], [data-testid="editor-delete"]').forEach(node => { node.disabled = saving || !state; });
     content.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('.form input, .form textarea').forEach(node => { node.disabled = saving; });
   }
-  function setOpen(value: boolean, focus = false): void {
-    cancel(hoverTimer); cancel(closeTimer);
+  function setOpen(value: boolean, focus = false, remember = true): void {
+    cancel(hoverTimer);
     opened = value;
+    if(remember)options.visibility?.(value);
     if(value)host.style.zIndex=String(options.front?.()??2147483000);
     positionDrawer();
     drawer.hidden = !value;
     trigger.setAttribute('aria-expanded', String(value));
     if (value && focus) drawer.focus();
   }
-  function scheduleClose(): void {
-    cancel(hoverTimer);
-    if (pinned || !opened || floating.interacting) return;
-    cancel(closeTimer);
-    closeTimer = later(() => {
-      if (!pinned && !floating.interacting && !drawer.contains(shadow.activeElement) && !draft?.dirty) setOpen(false);
-    }, 320);
-  }
-  trigger.onpointerenter = () => { cancel(closeTimer); cancel(hoverTimer); hoverTimer = later(() => setOpen(true), 150); };
-  trigger.onpointerleave = scheduleClose;
+  trigger.onpointerenter = () => { cancel(hoverTimer); hoverTimer = later(() => setOpen(true), 150); };
+  trigger.onpointerleave = () => cancel(hoverTimer);
   trigger.onclick = () => { setOpen(!opened, !opened); };
-  drawer.onpointerenter = () => { cancel(closeTimer); };
-  drawer.onpointerleave = scheduleClose;
-  const onFocusOut = () => { if (!drawer.matches(':hover')) scheduleClose(); };
-  drawer.addEventListener('focusout', onFocusOut);
   closeButton.onclick = () => { setOpen(false); trigger.focus(); };
   chip.onclick = () => setOpen(true, true);
   settingsButton.onclick = () => { if(options.tool){floating.reset();return;}view = view === 'settings' ? firstView() : 'settings'; renderNavigation(); renderContent(); };
-  pinButton.onclick = () => { if (state) send('settings.patch', { panelPinned: !pinned, revision: state.revision }); };
   shadow.addEventListener('keydown', onKeydown);
   function onKeydown(event: Event): void {
     const key = event as KeyboardEvent;
@@ -338,9 +330,6 @@ function mountPanel(win:Window,options:PanelOptions):PanelApi|null {
     trigger.title = trigger.ariaLabel = t('打开 Sidecar', 'Open Sidecar');
     settingsButton.title = settingsButton.ariaLabel = options.tool?t('恢复默认位置与大小','Reset position and size'):t('组件设置', 'Component settings');
     settingsButton.setAttribute('aria-pressed', String(view === 'settings'));
-    pinButton.title = pinButton.ariaLabel = pinned ? t('取消固定', 'Unpin drawer') : t('固定抽屉', 'Pin drawer');
-    pinButton.setAttribute('aria-pressed', String(pinned));
-    pinButton.disabled = !state;
     closeButton.title = closeButton.ariaLabel = t('收起', 'Close');
     tabs.replaceChildren();
     tabs.hidden = true;
@@ -526,6 +515,7 @@ function mountPanel(win:Window,options:PanelOptions):PanelApi|null {
   positionDrawer();
   const clock = win.setInterval(renderQuota, 30_000);
   const api: PanelApi = {
+    activate(scope,open,inherit){floating.activate(scope,inherit);setOpen(open,false,false);},
     show(next){if(next)view=next;renderNavigation();renderContent();setOpen(true,true);},
     receive(message): void {
       if (destroyed) return;
@@ -548,8 +538,8 @@ function mountPanel(win:Window,options:PanelOptions):PanelApi|null {
       workspaces?.setEnabled(state.settings.enabled.workspaces !== false);
       root.classList.toggle('motion',state.settings.enabled.motion !== false);
       root.classList.toggle('force-motion',state.settings.enabled.motion === true);
-      pinned = !!options.tool || state.settings.panelPinned;
-      if (firstSnapshot) { firstSnapshot = false; view = firstView(); if (pinned) setOpen(true); }
+
+      if (firstSnapshot) { firstSnapshot = false; view = firstView(); }
       if (view !== 'settings' && state.settings.enabled[view] === false) view = firstView();
       if(options.tool&&state.settings.enabled[options.tool]===false)setOpen(false);
       for(const kind of ['notes','bookmarks','translation'] as const)rail.querySelector<HTMLElement>(`[data-testid="rail-${kind}"]`)!.hidden=state.settings.enabled[kind]===false;
@@ -572,7 +562,7 @@ function mountPanel(win:Window,options:PanelOptions):PanelApi|null {
       for(const operation of pending.values())operation.fail?.(Error('Sidecar detached.'));
       for (const id of timers) win.clearTimeout(id);
       timers.clear(); pending.clear(); win.clearInterval(clock);
-      observer?.disconnect(); win.removeEventListener('resize', onResize); shadow.removeEventListener('keydown', onKeydown); drawer.removeEventListener('focusout', onFocusOut);
+      observer?.disconnect(); win.removeEventListener('resize', onResize); shadow.removeEventListener('keydown', onKeydown);
       placementObserver?.disconnect();floating.destroy();
       host.remove();
       nativeTheme?.destroy();

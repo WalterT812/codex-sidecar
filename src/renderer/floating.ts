@@ -22,6 +22,7 @@ export function changeFrame(start:Frame,kind:string,dx:number,dy:number,b:Bounds
 /** Geometry is local UI state. Each open window has its own session copy;
  * the last saved frame is only a default for newly opened windows. */
 export function createFloatingFrame(win:Window,drawer:HTMLElement,header:HTMLElement,bounds:()=>Bounds,layout:()=>void,key=KEY){
+ const baseKey=key;
  let preferred:Frame|null=null;
  try{const own=win.sessionStorage.getItem(key);preferred=readFrame(own===null?win.localStorage.getItem(key):own);win.sessionStorage.setItem(key,JSON.stringify(preferred));}catch{}
  let drag:{id:number;kind:string;x:number;y:number;start:Frame;before:Frame|null;capture:HTMLElement}|null=null;
@@ -64,6 +65,11 @@ export function createFloatingFrame(win:Window,drawer:HTMLElement,header:HTMLEle
  return{
   get interacting(){return !!drag;},
   current():Frame|null{return preferred?clampFrame(preferred,bounds()):null;},
+  activate(scope:string,inherit=false){
+   finish(true);const prior=preferred;key=baseKey+'.conversation.'+scope;preferred=null;
+   try{const own=win.sessionStorage.getItem(key),raw=own===null?win.localStorage.getItem(key):own;preferred=raw===null&&inherit?prior:readFrame(raw);win.sessionStorage.setItem(key,JSON.stringify(preferred));}catch{if(inherit)preferred=prior;}
+   layout();
+  },
   reset,
   destroy(){finish(true);header.removeEventListener('pointerdown',startMove);header.removeEventListener('dblclick',doubleClick);drawer.removeEventListener('keydown',keys);win.removeEventListener('pointermove',move,true);win.removeEventListener('pointerup',up,true);win.removeEventListener('pointercancel',cancel,true);win.removeEventListener('blur',blur);handles.forEach(h=>h.remove());},
  };

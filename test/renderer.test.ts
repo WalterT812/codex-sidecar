@@ -179,7 +179,7 @@ test('unknown and stale quota never render fabricated percentages', () => {
   } finally { app.close(); }
 });
 
-test('drawer click, deliberate hover, scoped Escape, and pin preference work', async () => {
+test('drawer stays open after pointer leave without a pin control', async () => {
   const app = setup();
   try {
     assert.equal(app.query('drawer').hidden, true);
@@ -194,11 +194,7 @@ test('drawer click, deliberate hover, scoped Escape, and pin preference work', a
     assert.equal(app.query('drawer').hidden, false);
     app.win.document.querySelector('main textarea')?.dispatchEvent(new app.dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     assert.equal(app.query('drawer').hidden, false, 'Native input Escape must not be intercepted');
-    app.query<HTMLButtonElement>('drawer-pin').click();
-    assert.deepEqual(app.requests.at(-1)?.payload, { panelPinned: true, revision: 7 });
-    const state = makeState(); state.settings.panelPinned = true; state.revision = 8;
-    app.api.receive({ type: 'snapshot', state, quota: unknownQuota() });
-    assert.equal(app.query('drawer-pin').getAttribute('aria-pressed'), 'true');
+    assert.equal(app.shadow?.querySelector('[data-testid="drawer-pin"]'),null);
     app.query('drawer').dispatchEvent(new app.dom.window.Event('pointerleave'));
     await new Promise(resolve => setTimeout(resolve, 360));
     assert.equal(app.query('drawer').hidden, false);
@@ -399,5 +395,26 @@ test('translation results are delivered only to the requesting tool window',asyn
   app.api.receive({type:'result',id:request.id,ok:true,translation:'一个清晰的空间。'});await new Promise(r=>setImmediate(r));
   assert.equal((shadow.querySelector('[data-testid="translate-output"]') as HTMLTextAreaElement).value,'一个清晰的空间。');
   assert.equal(app.shadow!.querySelector('[data-testid="translate-output"]'),null);
+ }finally{app.close()}
+});
+
+// The app's URL stays constant; conversation DOM identity is the route source.
+test('conversation switches hide tools and restore each conversation layout and manual close state',async()=>{
+ const app=setup({native:true,demo:false});const A='11111111-1111-1111-1111-111111111111',B='22222222-2222-2222-2222-222222222222';
+ const marker=app.win.document.createElement('div');app.win.document.querySelector('main')!.append(marker);
+ const switchTo=async(id:string)=>{marker.setAttribute('data-above-composer-conversation-id',id);await new Promise(r=>setImmediate(r));};
+ const tool=(kind:string)=>app.win.document.getElementById('codex-sidecar-root'+(kind==='notes'?'':'-'+kind))!.shadowRoot!;
+ const shown=(kind:string)=>{const root=app.win.document.getElementById('codex-sidecar-root'+(kind==='notes'?'':'-'+kind));return (root?.shadowRoot?.querySelector('.drawer') as HTMLElement|undefined)?.hidden===false;};
+ try{
+  await switchTo(A);for(const k of ['notes','bookmarks','translation'])app.query('rail-'+k).click();
+  const drawer=app.query('drawer');drawer.getBoundingClientRect=()=>new app.dom.window.DOMRect(500,100,390,400);
+  app.shadow!.querySelector('[data-resize="se"]')!.dispatchEvent(new app.dom.window.KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true}));assert.equal(drawer.style.width,'398px');
+  await switchTo(B);for(const k of ['notes','bookmarks','translation'])assert.equal(shown(k),false);assert.equal(drawer.style.width,'390px');
+  app.query('rail-translation').click();
+  await switchTo(A);for(const k of ['notes','bookmarks','translation'])assert.equal(shown(k),true);assert.equal(drawer.style.width,'398px');
+  (tool('bookmarks').querySelector('[data-testid="drawer-close"]') as HTMLButtonElement).click();
+  await switchTo(B);assert.equal(shown('notes'),false);assert.equal(shown('translation'),true);
+  await switchTo(A);assert.equal(shown('notes'),true);assert.equal(shown('bookmarks'),false);assert.equal(shown('translation'),true);
+  app.api.destroy();const remount=mountSidecar(app.win)!;remount.receive({type:'snapshot',state:makeState(),quota:unknownQuota()});assert.equal(shown('notes'),true);assert.equal(shown('bookmarks'),false);assert.equal(shown('translation'),true);remount.destroy();
  }finally{app.close()}
 });

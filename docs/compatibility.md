@@ -78,3 +78,11 @@ Personal account data, authentication files and native conversation databases ar
 - 128 tests, TypeScript and build passed, including concurrent panels, isolated translation responses, draft preservation, drag cancellation, persisted layouts and all resize edges.
 - In the native renderer, dispatched pointer events moved a panel from (462,162) to (432,142), resized 571x605 to 591x625, and cancellation restored the user's original frame exactly. Three panels were simultaneously visible with no decorative card or visible internal tabs. Walter separately confirmed the interaction was useful.
 - The reported wide table measured 1024px against a 690px content column with a -167px margin. After applying the fix, a live-renderer fixture reproducing those dimensions measured a 690px container, zero negative margin, and retained 1024px content inside horizontal scrolling. The original conversation had been switched away from before post-fix measurement; it was not reopened automatically.
+
+## Alpha.10 — panels follow the current conversation (5 September 2026)
+
+- Removed the pin control and pointer-leave dismissal. Notes now stays open like bookmarks and translation, regardless of the legacy panelPinned setting.
+- Observed that native navigation leaves location.href at app://-/index.html. Use the stable data-above-composer-conversation-id marker, with a selected native row fallback while a timeline exists.
+- Each conversation retains its own open tools and geometry. Automatic navigation hides/restores without overwriting manual close state. Existing visible panels and geometry were migrated before the local update.
+- 129 tests and build passed. Integration coverage switches A to B and back, checks geometry, manual closes and remount restoration.
+- Live native navigation to an existing unused conversation and back passed: open bookmarks/translation became hidden, then returned to identical rectangles; the previously closed notes panel stayed closed. Returned the app to its original conversation.
