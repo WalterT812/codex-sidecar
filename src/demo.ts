@@ -20,8 +20,8 @@ export async function startDemo() {
   const store = await StateStore.open(join(dataDirectory(), 'demo', 'state.json'));
   const renderer = await readFile(fileURLToPath(new URL('./renderer.js', import.meta.url)), 'utf8');
   const quota: QuotaSnapshot = { fetchedAt: new Date().toISOString(), windows: [
-    { id: 'demo:short', label: 'Sample · 5h', usedPercent: 28, remainingPercent: 72, resetsAt: Math.floor(Date.now() / 1000) + 7400, windowDurationMins: 300 },
-    { id: 'demo:week', label: 'Sample · 7d', usedPercent: 46, remainingPercent: 54, resetsAt: Math.floor(Date.now() / 1000) + 260000, windowDurationMins: 10080 },
+    { id: 'codex:primary', label: 'Sample · 5h', usedPercent: 28, remainingPercent: 72, resetsAt: Math.floor(Date.now() / 1000) + 7400, windowDurationMins: 300 },
+    { id: 'codex:secondary', label: 'Sample · 7d', usedPercent: 46, remainingPercent: 54, resetsAt: Math.floor(Date.now() / 1000) + 260000, windowDurationMins: 10080 },
   ] };
   let origin = '';
   let detached = false;

@@ -12,6 +12,17 @@ async function fixture(t: test.TestContext) {
   return join(dir, 'state.json');
 }
 
+test('theme preference survives reload without altering notes or other component settings', async t => {
+  const path = await fixture(t); const store = await StateStore.open(path);
+  await store.mutate('note.save', { revision: 0, title: 'Keep', body: 'Keep this note' });
+  await store.mutate('settings.patch', { revision: 1, enabled: { theme: false } });
+  const restored = await StateStore.open(path);
+  assert.equal(restored.snapshot.settings.enabled.theme, false);
+  assert.equal(restored.snapshot.settings.enabled.notes, true);
+  assert.equal(restored.snapshot.notes[0]?.body, 'Keep this note');
+  await assert.rejects(restored.mutate('settings.patch', { revision: 2, enabled: { theme: 'yes' } }), /boolean/);
+});
+
 test('a saved note survives reload and stale windows cannot overwrite it', async t => {
   const path = await fixture(t); const store = await StateStore.open(path);
   await store.mutate('note.save', { revision: 0, title: 'Ideas', body: 'Remember this' });

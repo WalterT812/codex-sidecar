@@ -5,7 +5,7 @@ import type { Bookmark, Note, Settings, StoredState } from './shared/types.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_STORE_BYTES = 2000000;
-const COMPONENTS = ['quota', 'notes', 'bookmarks', 'artwork'] as const;
+const COMPONENTS = ['quota', 'notes', 'bookmarks', 'artwork', 'theme'] as const;
 const MUTATIONS = ['note.save', 'note.delete', 'bookmark.save', 'bookmark.delete', 'settings.patch'] as const;
 type MutationAction = typeof MUTATIONS[number];
 type PreparedMutation = { action: MutationAction; revision: number; id?: string; title?: string; body?: string; threadUrl?: string; url?: string; excerpt?: string; settings?: Partial<Omit<Settings, 'enabled'>> & { enabled?: Partial<Settings['enabled']> } };
@@ -97,7 +97,7 @@ function validateState(value: unknown): StoredState {
     const bookmark = record(value, 'bookmark', ['id', 'title', 'url', 'excerpt', 'createdAt'], ['id', 'title', 'url', 'excerpt', 'createdAt']);
     return { id: savedId(bookmark.id), title: string(bookmark.title, 'title', 200), url: validateLink(bookmark.url), excerpt: string(bookmark.excerpt, 'excerpt', 10000), createdAt: date(bookmark.createdAt, 'createdAt') };
   });
-  return { version: 1, revision: revision(state.revision), settings: { locale: locale(settings.locale), panelPinned: boolean(settings.panelPinned, 'panelPinned'), enabled: { quota: boolean(enabled.quota, 'enabled.quota'), notes: boolean(enabled.notes, 'enabled.notes'), bookmarks: boolean(enabled.bookmarks, 'enabled.bookmarks'), ...(Object.hasOwn(enabled, 'artwork') ? { artwork: boolean(enabled.artwork, 'enabled.artwork') } : {}) } }, notes, bookmarks };
+  return { version: 1, revision: revision(state.revision), settings: { locale: locale(settings.locale), panelPinned: boolean(settings.panelPinned, 'panelPinned'), enabled: { quota: boolean(enabled.quota, 'enabled.quota'), notes: boolean(enabled.notes, 'enabled.notes'), bookmarks: boolean(enabled.bookmarks, 'enabled.bookmarks'), ...(Object.hasOwn(enabled, 'artwork') ? { artwork: boolean(enabled.artwork, 'enabled.artwork') } : {}), ...(Object.hasOwn(enabled, 'theme') ? { theme: boolean(enabled.theme, 'enabled.theme') } : {}) } }, notes, bookmarks };
 }
 
 function prepareMutation(action: string, input: unknown): PreparedMutation {

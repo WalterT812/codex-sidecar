@@ -10,7 +10,7 @@ export function element<K extends keyof HTMLElementTagNameMap>(
 
 export type IconName = 'spark' | 'note' | 'bookmark' | 'settings' | 'close' | 'pin' | 'plus' | 'back' | 'refresh' | 'arrow' | 'trash';
 const paths: Record<IconName, string[]> = {
-  spark: ['M12 3v18', 'M3 12h18', 'm5.6 5.6 12.8 12.8', 'M5.6 18.4 18.4 5.6'],
+  spark: ['M12 2c2 6 4 8 10 10-6 2-8 4-10 10C10 16 8 14 2 12c6-2 8-4 10-10Z', 'M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6'],
   note: ['M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Z', 'M14 3v6h6', 'M8 13h8', 'M8 17h5'],
   bookmark: ['M6 4h12v17l-6-4-6 4Z'],
   settings: ['M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8', 'M12 2v3', 'M12 19v3', 'M2 12h3', 'M19 12h3', 'm5 5 2 2', 'm17 17 2 2', 'm5 19 2-2', 'm17 7 2-2'],

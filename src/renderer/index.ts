@@ -1,8 +1,10 @@
 import type { Action, Bookmark, HostMessage, Note, QuotaSnapshot, StoredState } from '../shared/types.js';
 import { button, currentThreadUrl, dateLabel, element, icon, periodLabel, validLink } from './components.js';
 import { styles } from './styles.js';
+import { createNativeTheme } from './theme.js';
 
 declare const __SIDECAR_ART_URL__: string;
+declare const __SIDECAR_WALLPAPER_URL__: string;
 
 export interface SidecarApi { receive(message: HostMessage): void; destroy(): void }
 declare global {
@@ -66,6 +68,7 @@ export function mountSidecar(win: Window): SidecarApi | null {
   const demo = win.__CODEX_SIDECAR_BOOT__?.demo === true;
   const version = win.__CODEX_SIDECAR_BOOT__?.version ?? '0.1';
   const artworkUrl = typeof __SIDECAR_ART_URL__ === 'string' && /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(__SIDECAR_ART_URL__) ? __SIDECAR_ART_URL__ : '';
+  const nativeTheme = demo ? null : createNativeTheme(document, typeof __SIDECAR_WALLPAPER_URL__ === 'string' ? __SIDECAR_WALLPAPER_URL__ : '');
   const zh = () => state?.settings.locale !== 'en';
   const t = (cn: string, en: string) => zh() ? cn : en;
   const later = (fn: () => void, ms: number) => {
@@ -237,9 +240,13 @@ export function mountSidecar(win: Window): SidecarApi | null {
     chip.hidden = quotaSection.hidden = !enabled;
     const age = quota ? Date.now() - new Date(quota.fetchedAt).getTime() : Infinity;
     const stale = !!quota && (!Number.isFinite(age) || age > 120_000 || !!quota.error);
-    const windows = quota?.windows ?? [];
+    // The shared account pool is authoritative for general Codex usage. Model
+    // pools such as Spark must not masquerade as Astra/Sol remaining quota.
+    const windows = (quota?.windows ?? []).filter(item => /^codex:(primary|secondary)$/.test(item.id))
+      .sort((a, b) => Number(b.windowDurationMins === 10080) - Number(a.windowDurationMins === 10080));
     chip.classList.toggle('stale', stale);
-    const summary = windows.slice(0, 2).map(item => `${periodLabel(item.windowDurationMins, item.label, false)} ${item.remainingPercent === null ? '—' : `${Math.round(item.remainingPercent)}%`}`).join(' · ');
+    const periods = windows.slice(0, 2).map(item => `${periodLabel(item.windowDurationMins, item.label, false)} ${item.remainingPercent === null ? '—' : `${Math.round(item.remainingPercent)}%`}`).join(' · ');
+    const summary = periods ? `Codex · ${periods}` : '';
     chip.replaceChildren(icon(document, 'spark'), element(document, 'span', '', `${demo ? 'DEMO · ' : ''}${stale ? t('已过期 · ', 'Stale · ') : ''}${summary || t('额度未知', 'Quota unknown')}`));
     chip.setAttribute('aria-label', `${t('打开 Sidecar，剩余额度：', 'Open Sidecar, quota remaining: ')}${summary || t('未知', 'unknown')}`);
     quotaSection.replaceChildren();
@@ -431,11 +438,13 @@ export function mountSidecar(win: Window): SidecarApi | null {
     if (!state) return;
     content.append(element(document, 'h2', 'settings-heading', t('让 Sidecar 刚刚好', 'Make Sidecar your own')), element(document, 'p', 'settings-intro', t('只留下你需要的小组件。每一项都可以独立关闭。', 'Keep the small tools you need. Each component works independently.')));
     const labels = { quota: [t('额度指示器', 'Quota indicator'), t('在标题栏查看真实剩余额度', 'See real remaining quota in the title bar')], notes: [t('便签', 'Notes'), t('随手记录，保存在本机', 'Capture thoughts and save them locally')], bookmarks: [t('书签', 'Bookmarks'), t('收藏链接，回到原对话', 'Keep links to original conversations')], artwork: [t('插画封面', 'Illustrated cover'), t('一点温柔的色彩，编辑时自动收起', 'A touch of color, tucked away while you write')] };
-    for (const key of ['quota', 'notes', 'bookmarks', 'artwork'] as const) {
+    const themeLabels = { ...labels, theme: [t('珠光工坊 · 整窗主题', 'Pearl Atelier · whole-window theme'), t('侧栏、任务条目、字体、背景和对话框；关闭即恢复', 'Sidebar, tasks, typography, wallpaper and composer; turn off to restore')] };
+    for (const key of ['theme', 'quota', 'notes', 'bookmarks', 'artwork'] as const) {
       const row = element(document, 'label', 'setting-row');
-      const copy = element(document, 'span', 'setting-copy'); copy.append(element(document, 'span', 'setting-title', labels[key][0]), element(document, 'p', 'setting-description', labels[key][1]));
+      const copy = element(document, 'span', 'setting-copy'); copy.append(element(document, 'span', 'setting-title', themeLabels[key][0]), element(document, 'p', 'setting-description', themeLabels[key][1]));
       const toggle = element(document, 'input', 'switch'); toggle.type = 'checkbox'; toggle.checked = state.settings.enabled[key] !== false;
-      toggle.dataset.testid = `setting-${key}`; toggle.setAttribute('role', 'switch'); toggle.setAttribute('aria-label', labels[key][0] ?? key);
+      toggle.dataset.testid = `setting-${key}`; toggle.setAttribute('role', 'switch'); toggle.setAttribute('aria-label', themeLabels[key][0] ?? key);
+      if (key === 'theme' && !nativeTheme) { toggle.disabled = true; copy.querySelector('p')!.textContent = t('需在受支持的 Codex 原生窗口中使用', 'Requires a supported native Codex window'); }
       toggle.onchange = () => { if (state) { toggle.disabled = true; send('settings.patch', { enabled: { [key]: toggle.checked }, revision: state.revision }, renderContent); } };
       row.append(copy, toggle); content.append(row);
     }
@@ -473,6 +482,7 @@ export function mountSidecar(win: Window): SidecarApi | null {
       const previousLocale = state?.settings.locale;
       const stateChanged = !state || state.revision !== message.state.revision || state.settings.locale !== message.state.settings.locale;
       state = message.state; quota = message.quota;
+      nativeTheme?.setEnabled(state.settings.enabled.theme !== false);
       pinned = state.settings.panelPinned;
       if (firstSnapshot) { firstSnapshot = false; view = firstView(); if (pinned) setOpen(true); }
       if (view !== 'settings' && !state.settings.enabled[view]) view = firstView();
@@ -496,6 +506,7 @@ export function mountSidecar(win: Window): SidecarApi | null {
       timers.clear(); pending.clear(); win.clearInterval(clock);
       observer?.disconnect(); win.removeEventListener('resize', onResize); shadow.removeEventListener('keydown', onKeydown); drawer.removeEventListener('focusout', onFocusOut);
       host.remove();
+      nativeTheme?.destroy();
       if (win.__CODEX_SIDECAR__ === api) delete win.__CODEX_SIDECAR__;
       state = null; quota = null; draft = null;
     },

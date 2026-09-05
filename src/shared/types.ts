@@ -1,6 +1,6 @@
 export interface Note { id: string; title: string; body: string; threadUrl?: string; createdAt: string; updatedAt: string }
 export interface Bookmark { id: string; title: string; url: string; excerpt: string; createdAt: string }
-export interface Settings { locale: 'zh-CN' | 'en'; enabled: { quota: boolean; notes: boolean; bookmarks: boolean; artwork?: boolean }; panelPinned: boolean }
+export interface Settings { locale: 'zh-CN' | 'en'; enabled: { quota: boolean; notes: boolean; bookmarks: boolean; artwork?: boolean; theme?: boolean }; panelPinned: boolean }
 export interface StoredState { version: 1; revision: number; settings: Settings; notes: Note[]; bookmarks: Bookmark[] }
 export interface QuotaWindow { id: string; label: string; usedPercent: number | null; remainingPercent: number | null; resetsAt: number | null; windowDurationMins: number | null }
 export interface QuotaSnapshot { fetchedAt: string; windows: QuotaWindow[]; error?: string }

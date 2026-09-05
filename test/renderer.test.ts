@@ -55,6 +55,43 @@ test('mount is idempotent, handshake is sent, and destroy leaves native content 
   } finally { app.close(); }
 });
 
+test('quota shows the shared Codex week first and never substitutes Spark or unknown model pools', () => {
+  const makeWindow = (id: string, minutes: number, remaining: number | null) => ({ id, label: id.startsWith('codex:') ? 'Codex' : 'GPT-5.3-Codex-Spark', usedPercent: remaining === null ? null : 100 - remaining, remainingPercent: remaining, windowDurationMins: minutes, resetsAt: null });
+  const quota: QuotaSnapshot = { fetchedAt: new Date().toISOString(), windows: [makeWindow('codex_bengalfox:primary', 300, 100), makeWindow('codex_bengalfox:secondary', 10080, 100), makeWindow('codex:primary', 300, 70), makeWindow('codex:secondary', 10080, 38)] };
+  const app = setup({ quota });
+  try {
+    assert.match(app.query('quota-chip').textContent!, /Codex.*7d 38%/);
+    assert.ok(app.query('quota-chip').textContent!.indexOf('7d') < app.query('quota-chip').textContent!.indexOf('5h'));
+    assert.doesNotMatch(app.query('quota-summary').textContent!, /Spark|100%/);
+    app.api.receive({ type: 'snapshot', state: makeState(), quota: { ...quota, windows: quota.windows.slice(0, 2) } });
+    assert.match(app.query('quota-chip').textContent!, /unknown/i);
+    assert.doesNotMatch(app.query('quota-chip').textContent!, /100%/);
+    app.api.receive({ type: 'snapshot', state: makeState(), quota: { ...quota, windows: [makeWindow('codex:primary', 10080, null)] } });
+    assert.match(app.query('quota-chip').textContent!, /7d —/);
+  } finally { app.close(); }
+});
+
+test('native theme switch restores the whole window and preserves unsent native input', () => {
+  const app = setup({ native: true, demo: false });
+  try {
+    const input = app.win.document.querySelector('textarea')!;
+    input.value = 'Keep my native draft';
+    assert.equal(app.win.document.documentElement.dataset.codexSidecarTheme, 'pearl');
+    app.query('settings-open').click();
+    const toggle = app.query<HTMLInputElement>('setting-theme'); toggle.click();
+    assert.deepEqual(app.requests.at(-1)?.payload, { enabled: { theme: false }, revision: 7 });
+    const state = makeState(); state.revision = 8; state.settings.enabled.theme = false;
+    app.api.receive({ type: 'snapshot', state, quota: unknownQuota() });
+    assert.equal(app.win.document.getElementById('codex-sidecar-native-theme'), null);
+    assert.equal(app.win.document.documentElement.hasAttribute('data-codex-sidecar-theme'), false);
+    assert.equal(app.win.document.querySelector('textarea'), input);
+    assert.equal(input.value, 'Keep my native draft');
+    state.revision = 9; state.settings.enabled.theme = true;
+    app.api.receive({ type: 'snapshot', state, quota: unknownQuota() });
+    assert.equal(app.win.document.documentElement.dataset.codexSidecarTheme, 'pearl');
+  } finally { app.close(); }
+});
+
 test('production refuses an unsupported page without changing native DOM', () => {
   const app = setup({ demo: false });
   try {
@@ -134,7 +171,7 @@ test('unknown and stale quota never render fabricated percentages', () => {
     assert.match(app.query('quota-chip').textContent ?? '', /Quota unknown/);
     assert.match(app.query('quota-summary').textContent ?? '', /unavailable/);
     assert.doesNotMatch(app.query('quota-summary').textContent ?? '', /100%|0%/);
-    app.api.receive({ type: 'snapshot', state: makeState(), quota: { fetchedAt: '2020-01-01T00:00:00Z', windows: [{ id: 'primary', label: 'Primary', usedPercent: null, remainingPercent: null, resetsAt: null, windowDurationMins: 300 }] } });
+    app.api.receive({ type: 'snapshot', state: makeState(), quota: { fetchedAt: '2020-01-01T00:00:00Z', windows: [{ id: 'codex:primary', label: 'Codex', usedPercent: null, remainingPercent: null, resetsAt: null, windowDurationMins: 300 }] } });
     assert.match(app.query('quota-chip').textContent ?? '', /Stale/);
     assert.match(app.query('quota-summary').textContent ?? '', /5h/);
     assert.match(app.query('quota-summary').textContent ?? '', /Unknown/);

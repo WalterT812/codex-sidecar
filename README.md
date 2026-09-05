@@ -1,6 +1,6 @@
 # Codex Sidecar
 
-Personal components for the **official Codex desktop app**: a compact usage indicator, a hover drawer, notes, and bookmarks that take you back to the original conversation.
+Personal themes and components for the **official Codex desktop app**: a whole-window visual treatment, shared Codex usage indicator, hover drawer, notes, and bookmarks that take you back to the original conversation.
 
 [简体中文](README.zh-CN.md) · [Compatibility](docs/compatibility.md) · [Architecture](docs/superpowers/specs/2026-09-05-sidecar-design.md)
 
@@ -8,7 +8,8 @@ Personal components for the **official Codex desktop app**: a compact usage indi
 
 ## Features
 
-- Account quota from the official stdio app-server, including unknown/stale states and reset times.
+- Pearl Atelier whole-window theme: task rows, brand ornament, wallpaper, typography, menus, composer, and account area; a single switch restores native appearance. See the [design and research](docs/pearl-atelier.md).
+- Shared Codex account quota from the official stdio app-server, with the weekly window first; Spark pools are hidden. Unknown/stale states and reset times remain explicit.
 - Right-edge drawer: hover, click, keyboard, pin, and Escape.
 - Local notes and conversation bookmarks, synchronized across attached windows with revision conflict protection.
 - Component visibility settings and a complete detach action.
