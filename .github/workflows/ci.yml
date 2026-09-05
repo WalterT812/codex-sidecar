@@ -19,3 +19,11 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts
       - run: npm run check
+      - name: Windows launcher regression
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: .\test\launcher.test.ps1
+      - name: Windows launcher parent-exit regression
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: .\test\launcher-lifecycle.test.ps1

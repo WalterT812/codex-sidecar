@@ -4,6 +4,7 @@ import { win32 as path } from 'node:path';
 
 export interface AppInstallation { guiPath: string; packageVersion: string; packageFamilyName?: string }
 export interface DesktopProcess { pid: number; executablePath: string; debugPort: number | null }
+export interface DesktopOwner { pid: number; startedAt: string }
 
 const PACKAGE_SCRIPT = `Get-AppxPackage -Name OpenAI.Codex | Select-Object Name, InstallLocation, Version, PackageFamilyName | ConvertTo-Json -Compress`;
 const PROCESSES_SCRIPT = `@(Get-CimInstance Win32_Process -Filter "Name='ChatGPT.exe' OR Name='Codex.exe'" | Select-Object ProcessId, ParentProcessId, ExecutablePath, CommandLine) | ConvertTo-Json -Compress`;
@@ -11,7 +12,7 @@ const LISTENERS_SCRIPT = `$sidecarPort = [int]$sidecarInput.port
 @(Get-NetTCPConnection -State Listen -ErrorAction Stop | Where-Object LocalPort -eq $sidecarPort | Select-Object LocalAddress, OwningProcess) | ConvertTo-Json -Compress`;
 const OWNER_SCRIPT = `$sidecarPort = [int]$sidecarInput.port
 $sidecarListeners = @(Get-NetTCPConnection -State Listen -ErrorAction Stop | Where-Object LocalPort -eq $sidecarPort | Select-Object LocalAddress, OwningProcess)
-$sidecarProcesses = @(Get-CimInstance Win32_Process -Filter "Name='ChatGPT.exe' OR Name='Codex.exe'" | Select-Object ProcessId, ParentProcessId, ExecutablePath, CommandLine)
+$sidecarProcesses = @(Get-CimInstance Win32_Process -Filter "Name='ChatGPT.exe' OR Name='Codex.exe'" | Select-Object ProcessId, ParentProcessId, ExecutablePath, CommandLine, @{Name='CreationDate'; Expression={ if ($null -ne $_.CreationDate) { $_.CreationDate.ToUniversalTime().ToString('o', [Globalization.CultureInfo]::InvariantCulture) } else { $null } }})
 @{listeners=$sidecarListeners; processes=$sidecarProcesses} | ConvertTo-Json -Depth 4 -Compress`;
 
 /** Scripts are fixed source. Values enter through JSON in a child-only environment variable. */
@@ -100,15 +101,31 @@ export async function listDesktopProcesses(app: AppInstallation): Promise<Deskto
 }
 
 export async function verifyPortOwner(port: number, app: AppInstallation): Promise<boolean> {
+  return Boolean(await getVerifiedDesktopOwner(port, app));
+}
+
+/** Exact process generation, so a restarted desktop cannot inherit a stale coordinator. */
+export async function getVerifiedDesktopOwner(port: number, app: AppInstallation): Promise<DesktopOwner | null> {
   validateGui(app); validatePort(port);
   const result = record(await powershell(OWNER_SCRIPT, { port }));
-  if (!result) return false;
+  if (!result) return null;
   const guiPids = new Set(desktopProcesses(result.processes, app).map((item) => item.pid));
+  const rawListeners = Array.isArray(result.listeners) ? result.listeners : [result.listeners];
   const listeners = rows(result.listeners);
+  if (!listeners.length || listeners.length !== rawListeners.length) return null;
+  const pid = listeners[0]!.OwningProcess;
   // Electron subprocesses use the same packaged GUI executable. A CLI, even a descendant, is excluded.
-  return listeners.length > 0 && listeners.every((listener) =>
+  if (typeof pid !== 'number' || !guiPids.has(pid) || !listeners.every((listener) =>
     (listener.LocalAddress === '127.0.0.1' || listener.LocalAddress === '::1') &&
-    typeof listener.OwningProcess === 'number' && guiPids.has(listener.OwningProcess));
+    listener.OwningProcess === pid)) return null;
+  const ownerRows = rows(result.processes).filter(process => process.ProcessId === pid);
+  if (ownerRows.length !== 1) return null;
+  const startedAt = ownerRows[0]!.CreationDate;
+  if (typeof startedAt !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{7}Z$/.test(startedAt)) return null;
+  const parsed = new Date(startedAt);
+  if (!Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0, 19) !== startedAt.slice(0, 19)) return null;
+  // Do not round to JavaScript milliseconds: .NET's seven fractional digits identify the generation.
+  return { pid, startedAt };
 }
 
 /** Called only by an explicit start operation. Existing desktop sessions are never stopped. */

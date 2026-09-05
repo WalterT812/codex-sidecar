@@ -40,6 +40,8 @@ node dist/cli.js start
 
 The first attachment needs a desktop process started with a local debugging connection. **If Codex is already running without one, Sidecar stops with an explanation.** Finish active work, exit Codex normally, then launch Sidecar. It opens the installed official app. It never force-closes or automatically restarts an existing desktop process.
 
+Opening Sidecar again waits for an already-starting instance or verifies and reuses the ready instance. The coordinator exits when its original desktop process closes or is replaced.
+
 ```powershell
 node dist/cli.js stop
 ```
@@ -58,7 +60,9 @@ The shortcut allows its local launcher script with a **process-only** execution 
 
 ## Data and boundaries
 
-Local data defaults to `%LOCALAPPDATA%\Codex-Sidecar`; override with `CODEX_SIDECAR_DATA`. Demo data is in its own `demo` child directory. A single coordinator owns the store. Saves are revisioned and atomically replaced; corrupt/unknown stores are preserved and reported. The store is limited to 2 MB, with individual text limits.
+Local data defaults to `~/.codex-sidecar` (`%USERPROFILE%\.codex-sidecar` on Windows); override with `CODEX_SIDECAR_DATA`. This shared location avoids MSIX redirecting AppData writes into a package-private directory. Demo data is in its own `demo` child directory. A single coordinator owns the store. Saves are revisioned and atomically replaced; corrupt/unknown stores are preserved and reported. The store is limited to 2 MB, with individual text limits.
+
+Upgrading from alpha.1: stop the old companion before switching, keep its old `%LOCALAPPDATA%\Codex-Sidecar` folder as a backup, and copy `state.json` to the new data folder only if no new state exists. Do not copy locks or stop requests. Packaged callers can also have an old redirected copy under their MSIX package's `LocalCache\Local\Codex-Sidecar`; preserve it separately if both contain notes.
 
 Bookmark destinations are restricted to HTTPS and existing `codex://threads/<UUID>` links. Copy a conversation deep link from the official app (Windows default: Ctrl+Alt+L). Sidecar does not manage or rewrite native conversation databases.
 

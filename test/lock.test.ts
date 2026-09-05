@@ -5,7 +5,7 @@ import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
-import { acquireLock, requestStop } from '../src/lock.js';
+import { acquireLock, getLockOwner, LockBusyError, requestStop } from '../src/lock.js';
 
 async function fixture(t: test.TestContext) {
   const base = resolve('.local/tests'); await mkdir(base, { recursive: true });
@@ -49,8 +49,21 @@ test('a live PID lock is preserved even if its token belongs to another owner', 
   const path = join(directory, 'companion.lock');
   const original = JSON.stringify({ pid: process.pid, token: randomUUID() });
   await writeFile(path, original);
-  await assert.rejects(acquireLock(directory), /already running/i);
+  await assert.rejects(acquireLock(directory), error => {
+    assert.ok(error instanceof LockBusyError);
+    assert.deepEqual(error.owner, JSON.parse(original)); return true;
+  });
   assert.equal(await readFile(path, 'utf8'), original);
+  assert.deepEqual(await getLockOwner(directory), JSON.parse(original));
+});
+
+test('owner inspection is read-only and does not claim a missing lock', async t => {
+  const directory = await fixture(t);
+  assert.equal(await getLockOwner(directory), undefined);
+  await assert.rejects(readFile(join(directory, 'companion.lock')), { code: 'ENOENT' });
+  await writeFile(join(directory, 'companion.lock'), 'null');
+  await assert.rejects(getLockOwner(directory), /invalid/);
+  assert.equal(await readFile(join(directory, 'companion.lock'), 'utf8'), 'null');
 });
 
 test('malformed locks are never replaced or converted into stop requests', async t => {

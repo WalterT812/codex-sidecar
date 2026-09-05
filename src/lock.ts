@@ -3,10 +3,17 @@ import { mkdir, open, readFile, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
-interface LockData { pid: number; token: string }
+export interface LockOwner { pid: number; token: string }
+export class LockBusyError extends Error {
+  readonly owner: LockOwner;
+  constructor(owner: LockOwner) {
+    super('Codex Sidecar is already running. Waiting for its current status is required.');
+    this.name = 'LockBusyError'; this.owner = { ...owner };
+  }
+}
 const TOKEN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-async function readLock(path: string): Promise<LockData | undefined> {
+async function readLock(path: string): Promise<LockOwner | undefined> {
   let raw: string;
   try { raw = await readFile(path, 'utf8'); }
   catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined; throw error; }
@@ -19,6 +26,11 @@ async function readLock(path: string): Promise<LockData | undefined> {
     throw new Error('The companion lock is invalid and was preserved.');
   }
   return { pid: record.pid as number, token: record.token };
+}
+
+/** Validated inspection only: this never creates, removes, or reclaims a lock. */
+export async function getLockOwner(directory: string): Promise<LockOwner | undefined> {
+  return readLock(join(directory, 'companion.lock'));
 }
 
 function ownerIsAlive(pid: number): boolean {
@@ -57,7 +69,7 @@ export async function acquireLock(directory: string) {
     // the same guard. No stale pre-guard observation can delete a new lock.
     const existing = await readLock(path);
     if (existing) {
-      if (ownerIsAlive(existing.pid)) throw new Error('Codex Sidecar is already running. Use stop before starting another copy.');
+      if (ownerIsAlive(existing.pid)) throw new LockBusyError(existing);
       await unlink(path);
     }
     const file = await open(path, 'wx', 0o600);

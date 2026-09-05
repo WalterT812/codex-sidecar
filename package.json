@@ -1,12 +1,16 @@
 {
   "name": "codex-sidecar",
-  "version": "0.1.0-alpha.1",
+  "version": "0.1.0-alpha.2",
   "private": true,
   "description": "Personal components for the official Codex desktop app, without patching its installation.",
   "type": "module",
   "license": "MIT",
-  "engines": { "node": ">=22.13.0" },
-  "bin": { "codex-sidecar": "dist/cli.js" },
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "bin": {
+    "codex-sidecar": "dist/cli.js"
+  },
   "scripts": {
     "build": "node scripts/build.mjs",
     "typecheck": "tsc --noEmit",

@@ -3,11 +3,12 @@ import childProcess from 'node:child_process';
 import fs from 'node:fs/promises';
 import { EventEmitter } from 'node:events';
 import { test, mock, afterEach } from 'node:test';
-import { discoverWindowsApp, listDesktopProcesses, verifyPortOwner, launchDesktop, discoverCodexCli } from '../src/platform/windows.js';
+import { discoverWindowsApp, listDesktopProcesses, verifyPortOwner, getVerifiedDesktopOwner, launchDesktop, discoverCodexCli } from '../src/platform/windows.js';
 
 const install = 'C:\\Program Files\\WindowsApps\\OpenAI.Codex_26.901.2854.0_x64__test';
 const app = { guiPath: `${install}\\app\\ChatGPT.exe`, packageVersion: '26.901.2854.0', packageFamilyName: 'OpenAI.Codex_test' };
-const processRow = (pid: number, executablePath = app.guiPath, commandLine = '') => ({ ProcessId: pid, ParentProcessId: 0, ExecutablePath: executablePath, CommandLine: commandLine });
+const startedAt = '2026-09-05T00:01:02.1234567Z';
+const processRow = (pid: number, executablePath = app.guiPath, commandLine = '') => ({ ProcessId: pid, ParentProcessId: 0, ExecutablePath: executablePath, CommandLine: commandLine, CreationDate: startedAt });
 
 function powershellResponses(...responses: unknown[]) {
   mock.method(childProcess, 'execFile', (executable: string, args: string[], options: unknown, callback: (error: Error | null, stdout: string, stderr: string) => void) => {
@@ -70,6 +71,35 @@ test('rejects ports exposed on all interfaces or owned by another executable', a
   assert.equal(await verifyPortOwner(9444, app), false);
   assert.equal(await verifyPortOwner(9444, app), true);
   assert.equal(await verifyPortOwner(9444, app), false);
+});
+
+test('returns the actual listener owner and retains exact process-generation precision', async () => {
+  powershellResponses({
+    processes: [processRow(1), processRow(2)],
+    listeners: [{ LocalAddress: '127.0.0.1', OwningProcess: 2 }, { LocalAddress: '::1', OwningProcess: 2 }],
+  });
+  assert.deepEqual(await getVerifiedDesktopOwner(9444, app), { pid: 2, startedAt: '2026-09-05T00:01:02.1234567Z' });
+});
+
+test('a reused PID produces a distinct owner generation', async () => {
+  powershellResponses(
+    { processes: [processRow(2)], listeners: [{ LocalAddress: '127.0.0.1', OwningProcess: 2 }] },
+    { processes: [{ ...processRow(2), CreationDate: '2026-09-05T00:01:02.1234568Z' }], listeners: [{ LocalAddress: '127.0.0.1', OwningProcess: 2 }] },
+  );
+  const before = await getVerifiedDesktopOwner(9444, app);
+  const after = await getVerifiedDesktopOwner(9444, app);
+  assert.equal(before?.pid, after?.pid);
+  assert.notEqual(before?.startedAt, after?.startedAt);
+});
+
+test('refuses ambiguous owners, missing creation dates, and malformed listening records', async () => {
+  const invalid = [undefined, null, '', 'not-a-date', '2026-09-05T10:01:02.1234567+10:00', '2026-02-31T00:01:02.1234567Z'];
+  powershellResponses(
+    { processes: [processRow(1), processRow(2)], listeners: [{ LocalAddress: '127.0.0.1', OwningProcess: 1 }, { LocalAddress: '::1', OwningProcess: 2 }] },
+    { processes: [processRow(2)], listeners: [{ LocalAddress: '127.0.0.1', OwningProcess: 2 }, null] },
+    ...invalid.map(CreationDate => ({ processes: [{ ...processRow(2), CreationDate }], listeners: [{ LocalAddress: '127.0.0.1', OwningProcess: 2 }] })),
+  );
+  for (let i = 0; i < invalid.length + 2; i++) assert.equal(await getVerifiedDesktopOwner(9444, app), null);
 });
 
 test('refuses to launch while a desktop process exists and rejects CLI paths', async () => {

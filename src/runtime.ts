@@ -6,17 +6,18 @@ import { fileURLToPath } from 'node:url';
 import { createServer } from 'node:net';
 import { setTimeout as delay } from 'node:timers/promises';
 import { AccountClient } from './account/client.js';
-import { discoverCodexCli, discoverWindowsApp, listDesktopProcesses, launchDesktop, verifyPortOwner, type AppInstallation } from './platform/windows.js';
+import { discoverCodexCli, discoverWindowsApp, listDesktopProcesses, launchDesktop, verifyPortOwner, getVerifiedDesktopOwner, type AppInstallation } from './platform/windows.js';
 import { CdpConnection, isDesktopTarget, listTargets, validateSocketUrl, type PageTarget } from './cdp.js';
 import { StateStore } from './store.js';
 import { handleRequest } from './bridge.js';
 import { dataDirectory } from './paths.js';
-import { acquireLock } from './lock.js';
+import { acquireLock, LockBusyError } from './lock.js';
+import { InstanceOwnerChangedError, startInstanceServer, waitForInstance } from './instance.js';
 import { WorkGroup } from './work-group.js';
 import type { HostMessage, QuotaSnapshot } from './shared/types.js';
 
 const exec = promisify(execFile);
-export const VERSION = '0.1.0-alpha.1';
+export const VERSION = '0.1.0-alpha.2';
 export async function availablePort() {
   const server = createServer();
   await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
@@ -43,10 +44,49 @@ export async function chooseDesktopPort(app: AppInstallation, requestedPort?: nu
   throw new Error('Codex opened, but its debugging connection was not verified. The app was left running normally.');
 }
 
-interface MountedPage { connection: CdpConnection; contextId: number }
-export async function startCompanion(options: { port?: number; attachOnly?: boolean } = {}) {
-  const directory = dataDirectory();
-  const lock = await acquireLock(directory);
+export type DesktopConnection = Pick<CdpConnection, 'connected' | 'on' | 'off' | 'once' | 'request' | 'evaluate' | 'close'>;
+export interface RuntimeServices {
+  directory: string;
+  discoverApp: typeof discoverWindowsApp;
+  choosePort: typeof chooseDesktopPort;
+  owner: typeof getVerifiedDesktopOwner;
+  renderer: () => Promise<string>;
+  discoverCli: typeof discoverCodexCli;
+  targets: typeof listTargets;
+  connect: (url: string) => Promise<DesktopConnection>;
+  pollMs: number;
+  startupMs: number;
+  startupPollMs: number;
+  stopPollMs: number;
+}
+interface MountedPage { connection: DesktopConnection; contextId: number }
+export async function startCompanion(options: { port?: number; attachOnly?: boolean } = {}, overrides: Partial<RuntimeServices> = {}) {
+  const services: RuntimeServices = {
+    directory: dataDirectory(), discoverApp: discoverWindowsApp, choosePort: chooseDesktopPort,
+    owner: getVerifiedDesktopOwner,
+    renderer: () => readFile(fileURLToPath(new URL('./renderer.js', import.meta.url)), 'utf8'),
+    discoverCli: discoverCodexCli, targets: listTargets, connect: url => CdpConnection.connect(url),
+    pollMs: 5000, startupMs: 30_000, startupPollMs: 1000, stopPollMs: 1000, ...overrides,
+  };
+  const directory = services.directory;
+  let lock: Awaited<ReturnType<typeof acquireLock>> | undefined;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try { lock = await acquireLock(directory); break; }
+    catch (error) {
+      if (!(error instanceof LockBusyError)) throw error;
+      try {
+        const existing = await waitForInstance(directory, error.owner, options.port);
+        console.log(`Using the existing Codex Sidecar ${existing.version} instance.`);
+        console.log('SIDECAR_REUSED=1');
+        return;
+      } catch (handshakeError) {
+        if (attempt === 0 && handshakeError instanceof InstanceOwnerChangedError) continue;
+        throw handshakeError;
+      }
+    }
+  }
+  if (!lock) throw new Error('Could not establish Sidecar ownership.');
+  const ownedLock = lock;
   const pages = new Map<string, MountedPage>();
   const attempts = new Map<string, number>();
   const work = new WorkGroup();
@@ -56,13 +96,32 @@ export async function startCompanion(options: { port?: number; attachOnly?: bool
   let stopping = false;
   let pollBusy = false;
   let refreshPromise: Promise<void> | undefined;
+  let instance: Awaited<ReturnType<typeof startInstanceServer>> | undefined;
+  let resolveReady!: () => void;
+  let rejectReady!: (error: Error) => void;
+  const ready = new Promise<void>((resolve, reject) => { resolveReady = resolve; rejectReady = reject; });
+  void ready.catch(() => {});
+  let readyCheck: ((requestedPort?: number) => Promise<{ port: number; version: string }>) | undefined;
+  let shutdownPromise: Promise<void> | undefined;
   let quota: QuotaSnapshot = { fetchedAt: new Date(0).toISOString(), windows: [], error: 'Waiting for account usage.' };
 
-  async function shutdown() {
-    if (stopping) return;
+  const onSignal = () => { void shutdown('Sidecar received a stop signal.').catch(error => console.error((error as Error).message)); };
+  function shutdown(reason = 'Sidecar was stopped.') {
+    if (shutdownPromise) return shutdownPromise;
     stopping = true;
     intervals.forEach(clearInterval);
+    process.off('SIGINT', onSignal); process.off('SIGTERM', onSignal);
+    rejectReady(new Error(reason));
+    shutdownPromise = finishShutdown(reason);
+    return shutdownPromise;
+  }
+  async function finishShutdown(reason: string) {
+    console.log(`Stopping Codex Sidecar: ${reason}`);
+    await instance?.close(reason);
+    // Cancel owned account requests before draining actions that may await them.
+    await client?.close();
     await work.stop();
+    console.log('Pending component work drained.');
     await Promise.allSettled([...pages.values()].map(async page => {
       try {
         await page.connection.evaluate('window.__CODEX_SIDECAR__?.destroy()', page.contextId);
@@ -75,20 +134,64 @@ export async function startCompanion(options: { port?: number; attachOnly?: bool
       // never lose its request to an older instance's cleanup.
       try {
         const stopPath = join(directory, 'stop.request');
-        if ((await readFile(stopPath, 'utf8')) === lock.token) await unlink(stopPath);
+        if ((await readFile(stopPath, 'utf8')) === ownedLock.token) await unlink(stopPath);
       } catch { /* No request belonging to this instance. */ }
-      await lock.release();
+      await ownedLock.release();
     }
-    console.log('Codex Sidecar stopped. The official app is still running.');
+    console.log('Codex Sidecar stopped. No official app process was terminated.');
   }
 
   try {
-    const store = await StateStore.open(join(directory, 'state.json'));
-    const app = await discoverWindowsApp();
-    const port = await chooseDesktopPort(app, options.port, options.attachOnly);
-    const renderer = await readFile(fileURLToPath(new URL('./renderer.js', import.meta.url)), 'utf8');
-    try { cliPath = await discoverCodexCli(); client = new AccountClient(cliPath); } catch { quota.error = 'Codex CLI was not found; notes and bookmarks remain available.'; }
-
+    instance = await startInstanceServer({ pid: process.pid, token: ownedLock.token }, async requestedPort => {
+      await ready;
+      if (stopping || !readyCheck) throw new Error('Codex Sidecar is stopping.');
+      return readyCheck(requestedPort);
+    }, directory);
+    let stopErrorReported = false;
+    intervals.push(setInterval(async () => {
+      try {
+        if ((await readFile(join(directory, 'stop.request'), 'utf8')) === ownedLock.token) await shutdown();
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT' && !stopErrorReported) {
+          stopErrorReported = true; console.error(`Sidecar stop check failed: ${(error as Error).message}`);
+        }
+      }
+    }, services.stopPollMs));
+    process.once('SIGINT', onSignal); process.once('SIGTERM', onSignal);
+    // Keep ownership until every startup operation has settled. Resource creation
+    // must not resume after shutdown has already released the single-writer lock.
+    const prepared = await work.run(async () => {
+      const store = await StateStore.open(join(directory, 'state.json'));
+      if (stopping) return;
+      const app = await services.discoverApp();
+      if (stopping) return;
+      const port = await services.choosePort(app, options.port, options.attachOnly);
+      if (stopping) return;
+      const originalOwner = await services.owner(port, app);
+      if (stopping) return;
+      if (!originalOwner) throw new Error('The original Codex desktop process could not be verified.');
+      const renderer = await services.renderer();
+      if (stopping) return;
+      try {
+        cliPath = await services.discoverCli();
+        if (stopping) return;
+        client = new AccountClient(cliPath);
+      } catch { quota.error = 'Codex CLI was not found; notes and bookmarks remain available.'; }
+      if (stopping) return;
+      return { store, app, port, originalOwner, renderer };
+    });
+    if (!prepared || stopping) { await shutdown(); return; }
+    const { store, app, port, originalOwner, renderer } = prepared;
+    async function originalDesktopIsAlive() {
+      const owner = await services.owner(port, app);
+      if (stopping) return false;
+      if (!owner || owner.pid !== originalOwner.pid || owner.startedAt !== originalOwner.startedAt) {
+        // This may run inside tracked work. Do not await our own work drain.
+        void shutdown('The connected Codex desktop exited or was replaced.').catch(error => console.error((error as Error).message));
+        return false;
+      }
+      return true;
+    }
     const send = (page: MountedPage, message: HostMessage) => page.connection.evaluate(`window.__CODEX_SIDECAR__?.receive(${JSON.stringify(message)})`, page.contextId);
     const snapshot = (): HostMessage => ({ type: 'snapshot', state: store.snapshot, quota });
     async function broadcast() { await Promise.allSettled([...pages.values()].map(page => send(page, snapshot()))); }
@@ -113,9 +216,9 @@ export async function startCompanion(options: { port?: number; attachOnly?: bool
     async function mount(target: PageTarget) {
       const ensureRunning = () => { if (stopping) throw new Error('Companion is stopping.'); };
       ensureRunning();
-      if (!await verifyPortOwner(port, app)) throw new Error('Desktop connection ownership changed.');
+      if (!await originalDesktopIsAlive()) throw new Error('Desktop connection ownership changed.');
       ensureRunning();
-      const connection = await CdpConnection.connect(validateSocketUrl(target.webSocketDebuggerUrl!, port));
+      const connection = await services.connect(validateSocketUrl(target.webSocketDebuggerUrl!, port));
       let installedContext: number | undefined;
       try {
         ensureRunning();
@@ -144,7 +247,7 @@ export async function startCompanion(options: { port?: number; attachOnly?: bool
                 lastManualRefresh = Date.now(); await refreshQuota();
               },
               openLink: async url => { await exec('explorer.exe', [url], { windowsHide: true, timeout: 5000 }); },
-              detach: async () => { setTimeout(() => { void shutdown(); }, 80); },
+              detach: async () => { setTimeout(onSignal, 80); },
             });
             if (connection.connected) await send(page, result);
             await broadcast();
@@ -174,7 +277,8 @@ export async function startCompanion(options: { port?: number; attachOnly?: bool
       if (pollBusy || stopping) return;
       pollBusy = true;
       try {
-        const targets = (await listTargets(port)).filter(isDesktopTarget);
+        if (!await originalDesktopIsAlive()) return;
+        const targets = (await services.targets(port)).filter(isDesktopTarget);
         for (const [id, page] of pages) {
           if (!targets.some(target => target.id === id)) { page.connection.close(); pages.delete(id); continue; }
           try {
@@ -188,27 +292,37 @@ export async function startCompanion(options: { port?: number; attachOnly?: bool
           attempts.set(target.id, (attempts.get(target.id) ?? 0) + 1);
           try { await mount(target); } catch (error) { console.warn((error as Error).message); }
         }
-      } catch { /* App exit/update: wait for an explicit launch, never restart it here. */ }
+      } catch { /* A failed probe is not proof of exit. Retry; never restart Codex here. */ }
       finally { pollBusy = false; }
     }
+    readyCheck = requestedPort => work.run(async () => {
+      if (stopping) throw new Error('Codex Sidecar is stopping.');
+      if (requestedPort !== undefined && requestedPort !== port) throw new Error('Sidecar is already connected on another debugging port.');
+      if (!await originalDesktopIsAlive()) throw new Error('The previous Codex desktop has exited. Open Sidecar again after it finishes closing.');
+      const health = await Promise.allSettled([...pages.values()].map(page => page.connection.evaluate('Boolean(window.__CODEX_SIDECAR__)', page.contextId)));
+      if (stopping || !health.some(result => result.status === 'fulfilled' && result.value === true)) throw new Error('The existing Sidecar has no healthy attached window. Wait for the Codex window to finish opening, then try again.');
+      return { port, version: VERSION };
+    });
     await work.run(reconcile);
-    const readyDeadline = Date.now() + 30_000;
+    const readyDeadline = Date.now() + services.startupMs;
     while (!pages.size && !stopping && Date.now() < readyDeadline) {
-      await delay(1000);
+      await delay(services.startupPollMs);
+      if (stopping) break;
       await work.run(reconcile);
     }
-    if (stopping) return;
+    if (stopping) { await shutdown(); return; }
     if (!pages.size) throw new Error('No supported Codex window accepted the components. Check Sidecar compatibility; the official app was left unchanged.');
+    resolveReady();
     console.log('SIDECAR_READY=1');
     void refreshQuota();
-    intervals.push(setInterval(() => { void work.run(reconcile).catch(() => {}); }, 5000));
+    intervals.push(setInterval(() => { void work.run(reconcile).catch(() => {}); }, services.pollMs));
     intervals.push(setInterval(() => { void refreshQuota(); }, 60000));
-    intervals.push(setInterval(async () => {
-      try { if ((await readFile(join(directory, 'stop.request'), 'utf8')) === lock.token) await shutdown(); } catch { /* No stop request. */ }
-    }, 1000));
-    process.once('SIGINT', () => { void shutdown(); });
-    process.once('SIGTERM', () => { void shutdown(); });
     console.log(`Codex Sidecar ${VERSION} · desktop ${app.packageVersion} · loopback ${port}`);
     console.log('Use codex-sidecar stop to remove the components.');
-  } catch (error) { await shutdown(); throw error; }
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : 'Sidecar startup failed.';
+    rejectReady(new Error(reason));
+    await shutdown(reason);
+    throw error;
+  }
 }
