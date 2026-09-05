@@ -79,6 +79,10 @@ ${S} :where([data-app-shell-main-content-layout],[data-app-action-timeline-scrol
 ${S} [data-app-shell-application-menu-bar]{background:#efedeb!important;}
 ${S} [data-pip-obstacle="app-shell-header"]{background:#f7f6f3da!important;border-bottom:1px solid #ddd5e866;backdrop-filter:blur(14px);}
 ${S} [data-local-conversation-final-assistant]{background:#fffffff2;border:1px solid #e8e0f288;border-radius:18px;padding:18px 22px;box-shadow:0 4px 24px #77668b05;}
+/* Native wide tables use negative margins to escape the text column. Keep
+   their scroll surface inside our reply card without truncating table cells. */
+${S} [data-markdown-table][data-wide-block]{width:100%!important;max-width:100%!important;min-width:0!important;margin-inline:0!important;}
+${S} [data-markdown-table]>div{width:100%!important;max-width:100%!important;overflow-x:auto!important;}
 ${S} [data-user-message-bubble]{background:linear-gradient(115deg,#ede3f8f5,#e8edf9f5)!important;color:#4b4160!important;border:1px solid #cdbde17a;border-radius:19px 19px 6px 19px!important;box-shadow:0 4px 18px #8b729c0a;}
 ${S} :where([data-markdown-text-tone],[data-codex-composer="true"]){font-family:var(--font-content)!important;font-size:15px;line-height:1.8;}
 ${S} :where(pre,code,.monaco-editor,.xterm){font-family:var(--font-mono)!important;}

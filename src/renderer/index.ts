@@ -6,6 +6,7 @@ import { createNativeTheme } from './theme.js';
 import { createTranslator } from './translator.js';
 import { createWorkspaces } from './workspaces.js';
 import {drawerPlacement} from './placement.js';
+import {createFloatingFrame} from './floating.js';
 
 declare const __SIDECAR_ART_URL__: string;
 declare const __SIDECAR_WALLPAPER_URL__: string;
@@ -39,16 +40,32 @@ function nativeAnchor(win: Window): HTMLElement | null {
   }) ?? null;
 }
 
-/** Mount only in an explicit demo or a renderer with conservative native anchors. */
-export function mountSidecar(win: Window): SidecarApi | null {
-  win.__CODEX_SIDECAR__?.destroy();
+interface PanelApi extends SidecarApi { show(view?:View):void }
+interface PanelOptions { tool?:'bookmarks'|'translation'; openTool?:(kind:'notes'|'bookmarks'|'translation')=>void; front?:()=>number }
+/** One bridge receiver owns all tool windows; each window keeps its own draft. */
+export function mountSidecar(win:Window):SidecarApi|null{
+ win.__CODEX_SIDECAR__?.destroy();
+ const panels=new Map<string,PanelApi>();let snapshot:Extract<HostMessage,{type:'snapshot'}>|undefined;let layer=2147483000;
+ const front=()=>++layer;
+ const openTool=(kind:'notes'|'bookmarks'|'translation')=>{
+  if(kind==='notes'){primary?.show('notes');return;}
+  let panel=panels.get(kind);
+  if(!panel){panel=mountPanel(win,{tool:kind,front})??undefined;if(!panel)return;panels.set(kind,panel);if(snapshot)panel.receive(snapshot);}
+  panel.show();
+ };
+ const primary=mountPanel(win,{openTool,front});if(!primary)return null;
+ const api:SidecarApi={receive(message){if(message.type==='snapshot')snapshot=message;primary.receive(message);for(const panel of panels.values())panel.receive(message);},destroy(){primary.destroy();for(const panel of panels.values())panel.destroy();panels.clear();if(win.__CODEX_SIDECAR__===api)delete win.__CODEX_SIDECAR__;}};
+ win.__CODEX_SIDECAR__=api;return api;
+}
+function mountPanel(win:Window,options:PanelOptions):PanelApi|null {
+  const rootId=options.tool?ROOT_ID+'-'+options.tool:ROOT_ID;
   const document = win.document;
   const anchor = nativeAnchor(win);
   if (!anchor || !document.body) {
     win.__CODEX_SIDECAR_DIAGNOSTIC__ = 'Sidecar did not mount: a supported app shell and visible native header were not found.';
     return null;
   }
-  const leftover = document.getElementById(ROOT_ID);
+  const leftover = document.getElementById(rootId);
   if (leftover) {
     win.__CODEX_SIDECAR_DIAGNOSTIC__ = 'Sidecar did not mount: its root ID is occupied by an unknown element.';
     return null;
@@ -72,8 +89,8 @@ export function mountSidecar(win: Window): SidecarApi | null {
   const demo = win.__CODEX_SIDECAR_BOOT__?.demo === true;
   const version = win.__CODEX_SIDECAR_BOOT__?.version ?? '0.1';
   const artworkUrl = typeof __SIDECAR_ART_URL__ === 'string' && /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(__SIDECAR_ART_URL__) ? __SIDECAR_ART_URL__ : '';
-  const nativeTheme = demo ? null : createNativeTheme(document, typeof __SIDECAR_WALLPAPER_URL__ === 'string' ? __SIDECAR_WALLPAPER_URL__ : '');
-  const workspaces = demo ? null : createWorkspaces(win);
+  const nativeTheme = demo || options.tool ? null : createNativeTheme(document, typeof __SIDECAR_WALLPAPER_URL__ === 'string' ? __SIDECAR_WALLPAPER_URL__ : '');
+  const workspaces = demo || options.tool ? null : createWorkspaces(win);
   const translator = createTranslator(win, (text,source,target)=>new Promise((resolve,reject)=>send('translate',{text,source,target},message=>{if(message.error)setError(message.error);if(typeof message.translation==='string')resolve(message.translation);else reject(Error('Translation response missing.'));},reject)),()=>{if(state)send('translation.clear',{revision:state.revision});});
   const zh = () => state?.settings.locale !== 'en';
   const t = (cn: string, en: string) => zh() ? cn : en;
@@ -85,7 +102,7 @@ export function mountSidecar(win: Window): SidecarApi | null {
   const cancel = (id: number | undefined) => { if (id !== undefined) { win.clearTimeout(id); timers.delete(id); } };
 
   const host = element(document, 'div');
-  host.id = ROOT_ID;
+  host.id = rootId;
   host.dataset.testid = 'sidecar-root';
   host.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:2147483000;isolation:isolate;';
   const shadow = host.attachShadow({ mode: 'open' });
@@ -136,16 +153,19 @@ export function mountSidecar(win: Window): SidecarApi | null {
   const rail=element(document,'nav','tool-rail');rail.setAttribute('aria-label','Sidecar tools');rail.append(trigger);
   for(const kind of ['notes','bookmarks','translation'] as const){
     const tool=button(document,kind==='notes'?'便签':kind==='bookmarks'?'收藏':'翻译',`rail-${kind}`,kind==='notes'?'note':kind==='bookmarks'?'bookmark':'translate','icon-button');
-    tool.onclick=()=>{view=kind;renderNavigation();renderContent();setOpen(true,true);};rail.append(tool);
+    tool.onclick=()=>options.openTool?.(kind);rail.append(tool);
   }
+  if(options.tool){rail.hidden=true;pinButton.hidden=true;quotaSection.hidden=true;}
   root.append(chip, rail, drawer);
   shadow.append(style, root);
   document.body.append(host);
+  const floating=createFloatingFrame(win,drawer,header,()=>({width:win.innerWidth,height:win.innerHeight,top:anchor.getBoundingClientRect().bottom+12}),positionDrawer,'codex-sidecar.frame.v1'+(options.tool?'.'+options.tool:''));
+  host.addEventListener('pointerdown',()=>{host.style.zIndex=String(options.front?.()??2147483000);},true);
 
   function send(action: Action, payload: Record<string, unknown> = {}, done?: (message:Extract<HostMessage,{type:'result'}>) => void, fail?: (error:Error)=>void): void {
     if (destroyed) return;
     if (!win.__codexSidecarSend) { const error=Error(t('连接尚未就绪，请重新连接 Sidecar。', 'Sidecar is not connected. Please reconnect it.'));setError(error.message);fail?.(error);return; }
-    const id = `sidecar-${Date.now().toString(36)}-${++sequence}`;
+    const id = `sidecar-${options.tool??'main'}-${Date.now().toString(36)}-${++sequence}`;
     const timeout = later(() => {
       pending.delete(id);
       fail?.(Error('Translation request timed out.'));
@@ -174,6 +194,7 @@ export function mountSidecar(win: Window): SidecarApi | null {
   function setOpen(value: boolean, focus = false): void {
     cancel(hoverTimer); cancel(closeTimer);
     opened = value;
+    if(value)host.style.zIndex=String(options.front?.()??2147483000);
     positionDrawer();
     drawer.hidden = !value;
     trigger.setAttribute('aria-expanded', String(value));
@@ -181,10 +202,10 @@ export function mountSidecar(win: Window): SidecarApi | null {
   }
   function scheduleClose(): void {
     cancel(hoverTimer);
-    if (pinned || !opened) return;
+    if (pinned || !opened || floating.interacting) return;
     cancel(closeTimer);
     closeTimer = later(() => {
-      if (!pinned && !drawer.contains(shadow.activeElement) && !draft?.dirty) setOpen(false);
+      if (!pinned && !floating.interacting && !drawer.contains(shadow.activeElement) && !draft?.dirty) setOpen(false);
     }, 320);
   }
   trigger.onpointerenter = () => { cancel(closeTimer); cancel(hoverTimer); hoverTimer = later(() => setOpen(true), 150); };
@@ -196,7 +217,7 @@ export function mountSidecar(win: Window): SidecarApi | null {
   drawer.addEventListener('focusout', onFocusOut);
   closeButton.onclick = () => { setOpen(false); trigger.focus(); };
   chip.onclick = () => setOpen(true, true);
-  settingsButton.onclick = () => { view = view === 'settings' ? firstView() : 'settings'; renderNavigation(); renderContent(); };
+  settingsButton.onclick = () => { if(options.tool){floating.reset();return;}view = view === 'settings' ? firstView() : 'settings'; renderNavigation(); renderContent(); };
   pinButton.onclick = () => { if (state) send('settings.patch', { panelPinned: !pinned, revision: state.revision }); };
   shadow.addEventListener('keydown', onKeydown);
   function onKeydown(event: Event): void {
@@ -210,7 +231,7 @@ export function mountSidecar(win: Window): SidecarApi | null {
       key.preventDefault(); buttons[next]?.click(); tabs.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus();
     }
   }
-  function firstView(): View { return state?.settings.enabled.notes ? 'notes' : state?.settings.enabled.bookmarks ? 'bookmarks' : state?.settings.enabled.translation !== false ? 'translation' : 'settings'; }
+  function firstView(): View { if(options.tool)return options.tool;return state?.settings.enabled.notes ? 'notes' : state?.settings.enabled.bookmarks ? 'bookmarks' : state?.settings.enabled.translation !== false ? 'translation' : 'settings'; }
 
   function positionChip(): void {
     if (destroyed || !anchor) return;
@@ -252,6 +273,14 @@ export function mountSidecar(win: Window): SidecarApi | null {
     if(destroyed)return;
     const obstacles=Array.from(document.querySelectorAll<HTMLElement>('[data-pip-obstacle="thread-summary-panel"]')).filter(node=>win.getComputedStyle(node).display!=='none').map(node=>node.getBoundingClientRect());
     const placement=drawerPlacement(win.innerWidth,win.innerHeight,obstacles,anchor!.getBoundingClientRect().bottom);
+    const custom=floating.current();
+    if(custom){
+      drawer.style.left=custom.x+'px';drawer.style.top=custom.y+'px';drawer.style.right=drawer.style.bottom='auto';
+      drawer.style.width=custom.width+'px';drawer.style.height=drawer.style.maxHeight=custom.height+'px';
+      drawer.dataset.space=custom.height<440?'compact':'normal';rail.title='';return;
+    }
+    if(options.tool){const offset=options.tool==='bookmarks'?414:828;placement.right=Math.min(placement.right+offset,Math.max(16,win.innerWidth-placement.width-16));}
+    drawer.style.left='auto';
     drawer.style.right=placement.right+'px';drawer.style.top='auto';drawer.style.bottom=placement.bottom+'px';drawer.style.width=placement.width+'px';
     drawer.style.height=drawer.style.maxHeight=placement.height+'px';
     drawer.dataset.space=placement.height<180?'blocked':placement.height<440?'compact':'normal';
@@ -259,7 +288,7 @@ export function mountSidecar(win: Window): SidecarApi | null {
   }
   function renderQuota(): void {
     const enabled = state?.settings.enabled.quota !== false;
-    chip.hidden = quotaSection.hidden = !enabled;
+    chip.hidden = quotaSection.hidden = !enabled || !!options.tool;
     const age = quota ? Date.now() - new Date(quota.fetchedAt).getTime() : Infinity;
     const stale = !!quota && (!Number.isFinite(age) || age > 120_000 || !!quota.error);
     // The shared account pool is authoritative for general Codex usage. Model
@@ -307,14 +336,15 @@ export function mountSidecar(win: Window): SidecarApi | null {
   function renderNavigation(): void {
     tagline.textContent = t('留一点空间，给你的思路', 'A little space for your thinking');
     trigger.title = trigger.ariaLabel = t('打开 Sidecar', 'Open Sidecar');
-    settingsButton.title = settingsButton.ariaLabel = t('组件设置', 'Component settings');
+    settingsButton.title = settingsButton.ariaLabel = options.tool?t('恢复默认位置与大小','Reset position and size'):t('组件设置', 'Component settings');
     settingsButton.setAttribute('aria-pressed', String(view === 'settings'));
     pinButton.title = pinButton.ariaLabel = pinned ? t('取消固定', 'Unpin drawer') : t('固定抽屉', 'Pin drawer');
     pinButton.setAttribute('aria-pressed', String(pinned));
     pinButton.disabled = !state;
     closeButton.title = closeButton.ariaLabel = t('收起', 'Close');
     tabs.replaceChildren();
-    tabs.hidden = view === 'settings' || !state;
+    tabs.hidden = true;
+    brand.querySelector('h1')!.textContent=options.tool==='translation'?t('翻译','Translate'):options.tool==='bookmarks'?t('收藏','Bookmarks'):view==='settings'?'Sidecar':t('便签','Notes');
     for (const kind of ['notes', 'bookmarks', 'translation'] as const) {
       if (!state || state.settings.enabled[kind] === false) continue;
       const tab = button(document, kind === 'notes' ? t('便签', 'Notes') : kind === 'translation' ? t('翻译', 'Translate') : t('收藏', 'Bookmarks'), `tab-${kind}`, kind === 'notes' ? 'note' : kind === 'translation' ? 'translate' : 'bookmark', 'tab');
@@ -327,9 +357,9 @@ export function mountSidecar(win: Window): SidecarApi | null {
       tab.onclick = () => { view = kind; renderNavigation(); renderContent(); };
       tabs.append(tab);
     }
-    content.setAttribute('role', view === 'settings' ? 'region' : 'tabpanel');
+    content.setAttribute('role', 'region');
     if (view === 'settings') { content.removeAttribute('aria-labelledby'); content.setAttribute('aria-label', t('组件设置', 'Component settings')); }
-    else { content.removeAttribute('aria-label'); content.setAttribute('aria-labelledby', `sidecar-tab-${view}`); }
+    else { content.removeAttribute('aria-labelledby'); content.setAttribute('aria-label',brand.querySelector('h1')!.textContent!); }
     footer.replaceChildren(element(document, 'span', 'footer-dot'), element(document, 'span', 'grow', demo ? t('演示数据 · 独立本地保存', 'Demo data · stored separately') : t('保存在本机 · 跨窗口同步', 'Saved locally · synced across windows')), element(document, 'span', '', `v${version}`));
   }
 
@@ -472,6 +502,8 @@ export function mountSidecar(win: Window): SidecarApi | null {
       row.append(copy, toggle); content.append(row);
     }
     const bottom = element(document, 'div', 'settings-bottom');
+    const resetFrame=button(document,t('恢复工具窗位置与大小','Reset panel position and size'),'frame-reset',undefined,'button');
+    resetFrame.onclick=()=>floating.reset();bottom.append(resetFrame);
     const language = element(document, 'label', 'field'); language.append(element(document, 'span', '', t('界面语言', 'Language')));
     const select = element(document, 'select'); select.dataset.testid = 'setting-locale';
     for (const [value, label] of [['zh-CN', '简体中文'], ['en', 'English']]) { const option = element(document, 'option', '', label); option.value = value ?? ''; select.append(option); }
@@ -493,7 +525,8 @@ export function mountSidecar(win: Window): SidecarApi | null {
   const nativeRoot=document.getElementById('root');if(nativeRoot)placementObserver?.observe(nativeRoot,{childList:true,subtree:true,attributes:true,attributeFilter:['style','data-pip-obstacle']});
   positionDrawer();
   const clock = win.setInterval(renderQuota, 30_000);
-  const api: SidecarApi = {
+  const api: PanelApi = {
+    show(next){if(next)view=next;renderNavigation();renderContent();setOpen(true,true);},
     receive(message): void {
       if (destroyed) return;
       if (message.type === 'result') {
@@ -515,9 +548,10 @@ export function mountSidecar(win: Window): SidecarApi | null {
       workspaces?.setEnabled(state.settings.enabled.workspaces !== false);
       root.classList.toggle('motion',state.settings.enabled.motion !== false);
       root.classList.toggle('force-motion',state.settings.enabled.motion === true);
-      pinned = state.settings.panelPinned;
+      pinned = !!options.tool || state.settings.panelPinned;
       if (firstSnapshot) { firstSnapshot = false; view = firstView(); if (pinned) setOpen(true); }
       if (view !== 'settings' && state.settings.enabled[view] === false) view = firstView();
+      if(options.tool&&state.settings.enabled[options.tool]===false)setOpen(false);
       for(const kind of ['notes','bookmarks','translation'] as const)rail.querySelector<HTMLElement>(`[data-testid="rail-${kind}"]`)!.hidden=state.settings.enabled[kind]===false;
       renderQuota();
       if (!stateChanged) return;
@@ -539,7 +573,7 @@ export function mountSidecar(win: Window): SidecarApi | null {
       for (const id of timers) win.clearTimeout(id);
       timers.clear(); pending.clear(); win.clearInterval(clock);
       observer?.disconnect(); win.removeEventListener('resize', onResize); shadow.removeEventListener('keydown', onKeydown); drawer.removeEventListener('focusout', onFocusOut);
-      placementObserver?.disconnect();
+      placementObserver?.disconnect();floating.destroy();
       host.remove();
       nativeTheme?.destroy();
       workspaces?.destroy(); translator.destroy();
@@ -547,7 +581,6 @@ export function mountSidecar(win: Window): SidecarApi | null {
       state = null; quota = null; draft = null;
     },
   };
-  win.__CODEX_SIDECAR__ = api;
   renderNavigation(); renderQuota(); renderContent();
   send('ui.ready');
   return api;

@@ -70,3 +70,11 @@ Personal account data, authentication files and native conversation databases ar
 - Geometry tests cover an overlapping upper-right summary, reduced vertical space and narrow windows. A short popover omits artwork and duplicate quota; less than 180px of space leaves the dock accessible until the user collapses the summary.
 - Verified actual platform font glyphs in native user messages, assistant replies and the composer: HarmonyOS Sans SC. All three now compute to 16px with 28.8px line height. The previous theme already selected HarmonyOS, but missed the assistant-specific typography marker and the composer's inline size.
 - 119 tests, TypeScript checks and production build passed. Installed to the managed D: application directory and reattached without restarting Codex. Motion remained off.
+
+## Alpha.9 — independent movable tool panels (5 September 2026)
+
+- Notes, bookmarks and translation can stay open together. Their duplicate internal tab row is hidden; closing one does not close another. One host bridge distributes snapshots and routes results through unique per-panel request IDs.
+- Every panel supports title-bar dragging, eight resize handles, keyboard movement/resize, viewport clamping and double-click reset. UI geometry is stored separately per tool and window; it does not modify note data or the native application layout.
+- 128 tests, TypeScript and build passed, including concurrent panels, isolated translation responses, draft preservation, drag cancellation, persisted layouts and all resize edges.
+- In the native renderer, dispatched pointer events moved a panel from (462,162) to (432,142), resized 571x605 to 591x625, and cancellation restored the user's original frame exactly. Three panels were simultaneously visible with no decorative card or visible internal tabs. Walter separately confirmed the interaction was useful.
+- The reported wide table measured 1024px against a 690px content column with a -167px margin. After applying the fix, a live-renderer fixture reproducing those dimensions measured a 690px container, zero negative margin, and retained 1024px content inside horizontal scrolling. The original conversation had been switched away from before post-fix measurement; it was not reopened automatically.

@@ -375,3 +375,29 @@ test('native summary clicks and Sidecar opening remain independent',()=>{
   app.api.destroy();assert.equal(clicks,2);
  }finally{app.close();}
 });
+
+test('notes, bookmarks and translation open concurrently without duplicate visible tabs',()=>{
+ const app=setup();try{
+  for(const kind of ['notes','bookmarks','translation'])app.query('rail-'+kind).click();
+  const doc=app.win.document,book=doc.getElementById('codex-sidecar-root-bookmarks')!.shadowRoot!,translation=doc.getElementById('codex-sidecar-root-translation')!.shadowRoot!;
+  for(const shadow of [app.shadow!,book,translation]){assert.equal((shadow.querySelector('.drawer') as HTMLElement).hidden,false);assert.equal((shadow.querySelector('.tabs') as HTMLElement).hidden,true);}
+  (translation.querySelector('[data-testid="translate-input"]') as HTMLTextAreaElement).value='Preserve my translation';
+  (book.querySelector('[data-testid="new-bookmark"]') as HTMLButtonElement).click();
+  const title=book.querySelector('[data-testid="editor-title"]') as HTMLInputElement;title.value='My bookmark';title.dispatchEvent(new app.dom.window.Event('input',{bubbles:true}));
+  (book.querySelector('[data-testid="drawer-close"]') as HTMLButtonElement).click();
+  assert.equal((translation.querySelector('.drawer') as HTMLElement).hidden,false);
+  app.query('rail-bookmarks').click();assert.equal((book.querySelector('[data-testid="editor-title"]') as HTMLInputElement).value,'My bookmark');assert.equal((translation.querySelector('[data-testid="translate-input"]') as HTMLTextAreaElement).value,'Preserve my translation');
+  app.api.destroy();assert.equal(doc.querySelectorAll('[id^="codex-sidecar-root"]').length,0);
+ }finally{app.close()}
+});
+test('translation results are delivered only to the requesting tool window',async()=>{
+ const app=setup();try{
+  app.query('rail-translation').click();const shadow=app.win.document.getElementById('codex-sidecar-root-translation')!.shadowRoot!;
+  (shadow.querySelector('[data-testid="translate-input"]') as HTMLTextAreaElement).value='A clear space.';
+  shadow.querySelector('form')!.dispatchEvent(new app.dom.window.Event('submit',{bubbles:true,cancelable:true}));
+  const request=app.requests.find(r=>r.action==='translate')!;assert.ok(request);assert.match(request.id,/sidecar-translation-/);
+  app.api.receive({type:'result',id:request.id,ok:true,translation:'一个清晰的空间。'});await new Promise(r=>setImmediate(r));
+  assert.equal((shadow.querySelector('[data-testid="translate-output"]') as HTMLTextAreaElement).value,'一个清晰的空间。');
+  assert.equal(app.shadow!.querySelector('[data-testid="translate-output"]'),null);
+ }finally{app.close()}
+});

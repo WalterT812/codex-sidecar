@@ -4,9 +4,13 @@ The approved concept pairs a bright reading canvas with royal-purple selected ta
 
 Both sidebars support slow CSS gradient motion (24–27 seconds). Motion has an independent setting. Unspecified preference follows the operating system; an explicit switch can override it only for this companion. Walter's final preference is motion off with Windows reduced motion on. No animation runs a JavaScript frame loop. The native input DOM and conversation records remain owned by Codex.
 
-Selected task text overrides descendant native text tokens as well as inherited color. The selected row's icon is a transparent white outline. The horizontal tool dock sits 16px from the bottom-right corner. A rounded, 390px-wide popover opens upward, capped at 640px high. An open native summary limits available height without moving Sidecar sideways or toggling either panel. Short popovers omit decorative artwork and duplicate quota details, with tools scrolling internally. If fewer than 180px remain, only the dock remains available until the summary is collapsed.
+Selected task text overrides descendant native text tokens as well as inherited color. The selected row's icon is a transparent white outline. Notes, bookmarks and translation now open concurrently, with separate drafts and geometry. The duplicate tab row is hidden. Drag a panel header to move it; all eight edges/corners resize it. Header arrow keys move, bottom-right handle arrow keys resize, and Shift increases the step. Double-click a header or use Reset to restore its default position. Each tool has its own session layout; the most recently saved layout is a default for newly opened windows. User-positioned panels remain where placed instead of automatically avoiding the summary.
+
+The horizontal tool dock sits 16px from the bottom-right corner. A rounded, 390px-wide popover opens upward, capped at 640px high. An open native summary limits available height without moving Sidecar sideways or toggling either panel. Short popovers omit decorative artwork and duplicate quota details, with tools scrolling internally. If fewer than 180px remain, only the dock remains available until the summary is collapsed.
 
 UI, conversation text, Latin letters and numbers prefer the locally installed HarmonyOS Sans SC family. User messages, assistant replies and the native composer use 16px text with 1.8 line height, including the assistant-specific text-style marker and the composer inline-size override. No Huawei font binary is redistributed. Standard UI fallbacks apply on other machines. Code and mathematical notation retain their specialized fonts for alignment and correct symbols.
+
+Wide native tables are constrained to the reply card with their existing horizontal scroll surface, neutralizing the native negative-margin expansion.
 
 ## Workspaces
 
