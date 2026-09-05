@@ -1,12 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, open, readFile, rename, rm } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
-import type { Bookmark, Note, Settings, StoredState } from './shared/types.js';
+import type { Bookmark, Note, Settings, StoredState, TranslationRecord } from './shared/types.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_STORE_BYTES = 2000000;
-const COMPONENTS = ['quota', 'notes', 'bookmarks', 'artwork', 'theme'] as const;
-const MUTATIONS = ['note.save', 'note.delete', 'bookmark.save', 'bookmark.delete', 'settings.patch'] as const;
+const COMPONENTS = ['quota', 'notes', 'bookmarks', 'artwork', 'theme', 'motion', 'translation', 'workspaces'] as const;
+const MUTATIONS = ['note.save', 'note.delete', 'bookmark.save', 'bookmark.delete', 'settings.patch', 'translation.clear'] as const;
 type MutationAction = typeof MUTATIONS[number];
 type PreparedMutation = { action: MutationAction; revision: number; id?: string; title?: string; body?: string; threadUrl?: string; url?: string; excerpt?: string; settings?: Partial<Omit<Settings, 'enabled'>> & { enabled?: Partial<Settings['enabled']> } };
 
@@ -71,7 +71,7 @@ function date(value: unknown, label: string): string {
 }
 
 function validateState(value: unknown): StoredState {
-  const state = record(value, 'state', ['version', 'revision', 'settings', 'notes', 'bookmarks'], ['version', 'revision', 'settings', 'notes', 'bookmarks']);
+  const state = record(value, 'state', ['version', 'revision', 'settings', 'notes', 'bookmarks', 'translations'], ['version', 'revision', 'settings', 'notes', 'bookmarks']);
   if (state.version !== 1) throw new Error('Unsupported state version');
   const settings = record(state.settings, 'settings', ['locale', 'enabled', 'panelPinned'], ['locale', 'enabled', 'panelPinned']);
   const enabled = record(settings.enabled, 'enabled', COMPONENTS, ['quota', 'notes', 'bookmarks']);
@@ -97,7 +97,17 @@ function validateState(value: unknown): StoredState {
     const bookmark = record(value, 'bookmark', ['id', 'title', 'url', 'excerpt', 'createdAt'], ['id', 'title', 'url', 'excerpt', 'createdAt']);
     return { id: savedId(bookmark.id), title: string(bookmark.title, 'title', 200), url: validateLink(bookmark.url), excerpt: string(bookmark.excerpt, 'excerpt', 10000), createdAt: date(bookmark.createdAt, 'createdAt') };
   });
-  return { version: 1, revision: revision(state.revision), settings: { locale: locale(settings.locale), panelPinned: boolean(settings.panelPinned, 'panelPinned'), enabled: { quota: boolean(enabled.quota, 'enabled.quota'), notes: boolean(enabled.notes, 'enabled.notes'), bookmarks: boolean(enabled.bookmarks, 'enabled.bookmarks'), ...(Object.hasOwn(enabled, 'artwork') ? { artwork: boolean(enabled.artwork, 'enabled.artwork') } : {}), ...(Object.hasOwn(enabled, 'theme') ? { theme: boolean(enabled.theme, 'enabled.theme') } : {}) } }, notes, bookmarks };
+  const optional: Partial<Settings['enabled']> = {};
+  let translations:TranslationRecord[]|undefined;
+  if(Object.hasOwn(state,'translations')){
+    if(!Array.isArray(state.translations)||state.translations.length>50)throw Error('Invalid translation history');
+    translations=state.translations.map(value=>{
+      const row=record(value,'translation',['id','text','translation','source','target','createdAt','model'],['id','text','translation','source','target','createdAt','model']);
+      return{id:savedId(row.id),text:string(row.text,'source text',12000),translation:string(row.translation,'translation',60000),source:string(row.source,'source',16),target:string(row.target,'target',16),createdAt:date(row.createdAt,'createdAt'),model:string(row.model,'model',100)};
+    });
+  }
+  for(const key of ['artwork','theme','motion','translation','workspaces'] as const) if(Object.hasOwn(enabled,key))optional[key]=boolean(enabled[key],`enabled.${key}`);
+  return { version: 1, revision: revision(state.revision), settings: { locale: locale(settings.locale), panelPinned: boolean(settings.panelPinned, 'panelPinned'), enabled: { quota: boolean(enabled.quota, 'enabled.quota'), notes: boolean(enabled.notes, 'enabled.notes'), bookmarks: boolean(enabled.bookmarks, 'enabled.bookmarks'), ...optional } }, notes, bookmarks, ...(translations?{translations}:{}) };
 }
 
 function prepareMutation(action: string, input: unknown): PreparedMutation {
@@ -106,6 +116,7 @@ function prepareMutation(action: string, input: unknown): PreparedMutation {
     'note.save': ['revision', 'id', 'title', 'body', 'threadUrl'], 'note.delete': ['revision', 'id'],
     'bookmark.save': ['revision', 'id', 'title', 'url', 'excerpt'], 'bookmark.delete': ['revision', 'id'],
     'settings.patch': ['revision', 'enabled', 'locale', 'panelPinned'],
+    'translation.clear':['revision'],
   };
   const typedAction = action as MutationAction;
   const payload = record(input, 'payload', keys[typedAction], ['revision']);
@@ -130,6 +141,7 @@ function prepareMutation(action: string, input: unknown): PreparedMutation {
 }
 
 function applyMutation(state: StoredState, change: PreparedMutation): void {
+  if(change.action==='translation.clear'){state.translations=[];return;}
   const now = new Date().toISOString();
   if (change.action === 'settings.patch') {
     const patch = change.settings!;
@@ -172,6 +184,17 @@ export class StateStore {
   }
 
   get snapshot(): StoredState { return structuredClone(this.state); }
+
+  async appendTranslation(input:Omit<TranslationRecord,'id'|'createdAt'>):Promise<void>{
+    const saved:TranslationRecord={id:randomUUID(),createdAt:new Date().toISOString(),text:string(input.text,'text',12000),translation:string(input.translation,'translation',60000),source:string(input.source,'source',16),target:string(input.target,'target',16),model:string(input.model,'model',100)};
+    const operation=this.pending.then(async()=>{
+      if(this.state.revision===Number.MAX_SAFE_INTEGER)throw Error('State revision limit reached');
+      const next=structuredClone(this.state);next.translations=[...(next.translations??[]),saved].slice(-50);next.revision++;
+      while(next.translations.length>1&&Buffer.byteLength(JSON.stringify(next,null,2)+'\n','utf8')>MAX_STORE_BYTES)next.translations.shift();
+      await this.write(next);this.state=next;
+    });
+    this.pending=operation.then(()=>undefined,()=>undefined);return operation;
+  }
 
   async mutate(action: string, payload: Record<string, unknown>): Promise<StoredState> {
     // Copy validated values before queuing so callers cannot alter a pending write.

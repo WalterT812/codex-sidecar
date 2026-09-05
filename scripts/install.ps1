@@ -1,4 +1,4 @@
-param([string]$InstallDir = 'D:\Apps\Codex-Sidecar')
+param([string]$InstallDir = 'D:\Apps\Codex-Sidecar', [switch]$EnableStartup)
 $ErrorActionPreference = 'Stop'
 $sourceRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..')).TrimEnd('\')
 $targetRoot = [IO.Path]::GetFullPath($InstallDir).TrimEnd('\')
@@ -17,7 +17,7 @@ if (Test-Path -LiteralPath $targetRoot) {
 }
 New-Item -ItemType Directory -Path (Join-Path $targetRoot 'dist') -Force | Out-Null
 foreach ($name in @('cli.js','renderer.js')) { Copy-Item -LiteralPath (Join-Path $sourceRoot "dist\$name") -Destination (Join-Path $targetRoot "dist\$name") -Force }
-foreach ($name in @('LICENSE','THIRD_PARTY_NOTICES.md','README.md','README.zh-CN.md','CONTRIBUTING.md','docs/compatibility.md','docs/components.md','docs/pearl-atelier.md','assets/ARTWORK.md','assets/pearl-wallpaper-v1.png','assets/pearl-icon-study-v1.png','assets/lilac-cover-v1.png','docs/superpowers/specs/2026-09-05-sidecar-design.md')) {
+foreach ($name in @('LICENSE','THIRD_PARTY_NOTICES.md','README.md','README.zh-CN.md','CONTRIBUTING.md','docs/compatibility.md','docs/components.md','docs/pearl-atelier.md','assets/ARTWORK.md','assets/ROYAL-ARTWORK.md','assets/royal-pearl-wallpaper-v2.png','docs/royal-pearl.md','assets/pearl-wallpaper-v1.png','assets/pearl-icon-study-v1.png','assets/lilac-cover-v1.png','docs/superpowers/specs/2026-09-05-sidecar-design.md')) {
     $documentationTarget = Join-Path $targetRoot $name
     New-Item -ItemType Directory -Path (Split-Path -Parent $documentationTarget) -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $sourceRoot $name) -Destination $documentationTarget -Force
@@ -29,15 +29,34 @@ $installedPackage = @{ name='codex-sidecar'; version=$package.version; type='mod
 [IO.File]::WriteAllText((Join-Path $targetRoot 'package.json'), $installedPackage, (New-Object Text.UTF8Encoding($false)))
 @{ name='codex-sidecar'; version=$package.version; nodePath=$nodePath; installedAt=(Get-Date).ToString('o') } | ConvertTo-Json | Set-Content -LiteralPath $markerPath -Encoding UTF8
 $shellLink = New-Object -ComObject WScript.Shell
+$compiler = Join-Path $env:SystemRoot 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+$launcherExe = Join-Path $targetRoot 'CodexSidecar.exe'
+$builtLauncher = Join-Path $sourceRoot 'dist\CodexSidecar.exe'
+& $compiler /nologo /target:winexe /optimize+ /reference:System.Windows.Forms.dll ("/out:$builtLauncher") (Join-Path $PSScriptRoot 'Launcher.cs')
+if ($LASTEXITCODE -ne 0) { throw 'Native launcher build failed.' }
+Copy-Item -LiteralPath $builtLauncher -Destination $launcherExe -Force
 $desktop = [Environment]::GetFolderPath('Desktop')
 $shortcutPath = Join-Path $desktop 'Codex Sidecar.lnk'
 $shortcut = $shellLink.CreateShortcut($shortcutPath)
-$shortcut.TargetPath = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-$shortcut.Arguments = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + (Join-Path $targetRoot 'Launch.ps1') + '"'
+$shortcut.TargetPath = $launcherExe
+$shortcut.Arguments = ''
+$shortcut.Hotkey = 'CTRL+ALT+X'
 $shortcut.WorkingDirectory = $targetRoot
 $shortcut.Description = 'Codex Sidecar - personal components for the official app'
 $shortcut.IconLocation = (Join-Path $env:SystemRoot 'System32\shell32.dll') + ',167'
 $shortcut.Save()
+$startMenu = Join-Path ([Environment]::GetFolderPath('Programs')) 'Codex Sidecar.lnk'
+Copy-Item -LiteralPath $shortcutPath -Destination $startMenu -Force
+if ($EnableStartup) {
+    $startupPath = Join-Path ([Environment]::GetFolderPath('Startup')) 'Codex Sidecar.lnk'
+    $startupLink = $shellLink.CreateShortcut($startupPath)
+    $startupLink.TargetPath = $launcherExe
+    $startupLink.Arguments = '--startup'
+    $startupLink.WorkingDirectory = $targetRoot
+    $startupLink.Description = 'Start Codex with personal components after Windows sign-in'
+    $startupLink.Save()
+    Write-Output "Startup enabled: $startupPath"
+}
 foreach ($name in @('cli.js','renderer.js')) {
     if ((Get-FileHash -LiteralPath (Join-Path $sourceRoot "dist\$name")).Hash -ne (Get-FileHash -LiteralPath (Join-Path $targetRoot "dist\$name")).Hash) { throw "Installed file verification failed: $name" }
 }

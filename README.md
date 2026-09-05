@@ -8,15 +8,17 @@ Personal themes and components for the **official Codex desktop app**: a whole-w
 
 ## Features
 
-- Pearl Atelier whole-window theme: task rows, brand ornament, wallpaper, typography, menus, composer, and account area; a single switch restores native appearance. See the [design and research](docs/pearl-atelier.md).
+- Royal Pearl whole-window theme: bright glass wallpaper, purple task selection, champagne accents, and HarmonyOS Sans SC when installed. A single switch restores native appearance. See [design and behavior](docs/royal-pearl.md).
 - Shared Codex account quota from the official stdio app-server, with the weekly window first; Spark pools are hidden. Unknown/stale states and reset times remain explicit.
-- Right-edge drawer: hover, click, keyboard, pin, and Escape.
+- Right-edge drawer: hover, click, keyboard, pin, and Escape; it shares one position with the native pinned summary and clears the title bar.
+- Workspace views over native sections, using their original new-chat actions.
+- Sol translation with medium reasoning, using Codex quota and local history for up to 50 translations; no new saved chat.
 - Local notes and conversation bookmarks, synchronized across attached windows with revision conflict protection.
 - Component visibility settings and a complete detach action.
-- Original adult anime cover art, with an independent visibility toggle; it hides while editing.
+- Original bright abstract cover art, with an independent visibility toggle; it hides while editing.
 - Independent browser preview with clearly labeled sample quota and separate demo data.
 
-Translation is planned after selecting a provider. The alpha does not send selected text to a translation service or alter chat submission.
+Translation sends only submitted text to Codex using an ephemeral Sol job. There is no on-device or third-party translation fallback.
 
 ## Run from source
 
@@ -57,7 +59,7 @@ Stopping removes the mounted components while leaving the official desktop runni
 
 The default destination is `D:\Apps\Codex-Sidecar`. Source code remains wherever you cloned it, such as `D:\Projects\Codex-Sidecar`. The installer copies only built app files and creates a desktop shortcut. Node must already be installed; it is not bundled.
 
-The shortcut allows its local launcher script with a **process-only** execution policy; it does not change the system or user policy. Startup waits for an actual mounted window and reports failure visibly.
+The desktop shortcut targets a Windows-subsystem executable that creates no console. Start menu search and Ctrl+Alt+X are also available. The internal launcher uses a process-only script execution policy. Opt into startup with `scripts\install.ps1 -EnableStartup`; ordinary installation leaves this preference unchanged.
 
 ## Data and boundaries
 

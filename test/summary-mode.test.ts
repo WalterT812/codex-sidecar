@@ -1,0 +1,8 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {JSDOM} from 'jsdom';import {createSummaryMode} from '../src/renderer/summary-mode.js';
+function fixture(pressed='true'){
+ const dom=new JSDOM(`<header><button aria-label="Toggle pinned summary" aria-pressed="${pressed}">Summary</button></header>`);const button=dom.window.document.querySelector('button')!;button.getBoundingClientRect=()=>new dom.window.DOMRect(900,40,28,28);
+ let clicks=0;button.addEventListener('click',()=>{clicks++;button.setAttribute('aria-pressed',String(button.getAttribute('aria-pressed')!=='true'));});let closes=0;const mode=createSummaryMode(dom.window.document,()=>closes++);return{dom,button,mode,clicks:()=>clicks,closes:()=>closes};
+}
+test('opening Sidecar hides the summary once and closing or destroying restores its prior state',()=>{const f=fixture();f.mode.setOpen(true);f.mode.setOpen(true);assert.equal(f.clicks(),1);assert.equal(f.button.getAttribute('aria-pressed'),'false');f.mode.setOpen(false);assert.equal(f.button.getAttribute('aria-pressed'),'true');f.mode.setOpen(true);f.mode.destroy();assert.equal(f.button.getAttribute('aria-pressed'),'true');f.dom.window.close();});
+test('a user click on summary closes Sidecar and does not fight the native toggle',()=>{const f=fixture();f.mode.setOpen(true);f.button.click();assert.equal(f.closes(),1);assert.equal(f.button.getAttribute('aria-pressed'),'true');f.mode.destroy();assert.equal(f.clicks(),2);f.dom.window.close();});
+test('a previously closed summary remains closed after using Sidecar',()=>{const f=fixture('false');f.mode.setOpen(true);f.mode.setOpen(false);assert.equal(f.clicks(),0);f.mode.destroy();f.dom.window.close();});

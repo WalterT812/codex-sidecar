@@ -266,7 +266,7 @@ test('bookmark save uses a validated manual link and exact flat bridge payload',
 });
 
 test('master settings stay available when every component is disabled', () => {
-  const state = makeState(); state.settings.enabled = { quota: false, notes: false, bookmarks: false };
+  const state = makeState(); state.settings.enabled = { quota: false, notes: false, bookmarks: false, translation: false };
   const app = setup({ state });
   try {
     assert.equal(app.query('quota-chip').hidden, true);

@@ -33,6 +33,12 @@ test('allowlisted host actions and mutations return correlated results', async t
   assert.equal(stale.type, 'result'); if (stale.type === 'result') { assert.equal(stale.ok, false); assert.match(stale.error!, /changed|refresh/i); }
 });
 
+test('translation validates languages before invoking the helper and persists successful output',async t=>{
+ const {context}=await fixture(t);let count=0;context.translate=async()=>{count++;return '你好';};
+ const rejected=await handleRequest({id:'bad',action:'translate',payload:{text:'Hello',source:'constructor',target:'zh'}},context);assert.equal(rejected.type==='result'&&rejected.ok,false);assert.equal(count,0);
+ const result=await handleRequest({id:'good',action:'translate',payload:{text:'Hello',source:'en',target:'zh'}},context);assert.deepEqual(result,{type:'result',id:'good',ok:true,translation:'你好'});assert.equal(context.store.snapshot.translations?.[0]?.model,'gpt-5.6-sol / medium');
+});
+
 test('hostile malformed requests never reach privileged handlers', async t => {
   const { context, calls } = await fixture(t);
   const hostile: unknown[] = [

@@ -23,6 +23,21 @@ test('theme preference survives reload without altering notes or other component
   await assert.rejects(restored.mutate('settings.patch', { revision: 2, enabled: { theme: 'yes' } }), /boolean/);
 });
 
+test('translation history queues alongside notes, survives restart and clears without affecting notes',async t=>{
+ const path=await fixture(t),store=await StateStore.open(path);
+ await store.mutate('note.save',{revision:0,title:'keep',body:'native note'});
+ await store.appendTranslation({text:'Hello',translation:'你好',source:'en',target:'zh',model:'gpt-5.6-sol / medium'});
+ await store.mutate('settings.patch',{revision:2,enabled:{motion:false,translation:true}});
+ const restored=await StateStore.open(path);assert.equal(restored.snapshot.translations?.[0]?.translation,'你好');assert.equal(restored.snapshot.settings.enabled.motion,false);
+ await restored.mutate('translation.clear',{revision:3});const again=await StateStore.open(path);assert.deepEqual(again.snapshot.translations,[]);assert.equal(again.snapshot.notes[0]?.body,'native note');
+});
+
+test('translation history retains the most recent 50 records and protects stored input from mutation',async t=>{
+ const path=await fixture(t),store=await StateStore.open(path);
+ for(let i=0;i<52;i++)await store.appendTranslation({text:String(i),translation:String(i),source:'en',target:'zh',model:'sol'});
+ const saved=(await StateStore.open(path)).snapshot;assert.equal(saved.translations?.length,50);assert.equal(saved.translations?.[0]?.text,'2');assert.equal(saved.translations?.at(-1)?.text,'51');
+});
+
 test('a saved note survives reload and stale windows cannot overwrite it', async t => {
   const path = await fixture(t); const store = await StateStore.open(path);
   await store.mutate('note.save', { revision: 0, title: 'Ideas', body: 'Remember this' });

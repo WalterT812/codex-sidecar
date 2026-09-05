@@ -14,10 +14,11 @@ import { dataDirectory } from './paths.js';
 import { acquireLock, LockBusyError } from './lock.js';
 import { InstanceOwnerChangedError, startInstanceServer, waitForInstance } from './instance.js';
 import { WorkGroup } from './work-group.js';
+import {translateWithCodex} from './translation.js';
 import type { HostMessage, QuotaSnapshot } from './shared/types.js';
 
 const exec = promisify(execFile);
-export const VERSION = '0.1.0-alpha.3';
+export const VERSION = '0.1.0-alpha.6';
 export async function availablePort() {
   const server = createServer();
   await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
@@ -248,6 +249,7 @@ export async function startCompanion(options: { port?: number; attachOnly?: bool
               },
               openLink: async url => { await exec('explorer.exe', [url], { windowsHide: true, timeout: 5000 }); },
               detach: async () => { setTimeout(onSignal, 80); },
+              translate: translateWithCodex,
             });
             if (connection.connected) await send(page, result);
             await broadcast();

@@ -1,14 +1,16 @@
 import type { Action, HostMessage } from './shared/types.js';
 import { StateStore, validateLink } from './store.js';
+import {validateTranslation} from './translation.js';
 
 export interface BridgeContext {
   store: StateStore;
   refreshQuota: () => Promise<void>;
   openLink: (url: string) => Promise<void>;
   detach: () => Promise<void>;
+  translate?: (payload:Record<string,unknown>) => Promise<string>;
 }
 
-const ACTIONS: readonly Action[] = ['ui.ready', 'note.save', 'note.delete', 'bookmark.save', 'bookmark.delete', 'settings.patch', 'quota.refresh', 'open.link', 'ui.detach'];
+const ACTIONS: readonly Action[] = ['ui.ready', 'note.save', 'note.delete', 'bookmark.save', 'bookmark.delete', 'settings.patch', 'quota.refresh', 'open.link', 'ui.detach', 'translate', 'translation.clear'];
 const ID = /^[A-Za-z0-9_.:-]{1,128}$/;
 // A 100,000-character note may expand to six JSON characters per source character.
 const MAX_REQUEST_LENGTH = 700000;
@@ -45,6 +47,12 @@ export async function handleRequest(input: string | unknown, context: BridgeCont
     if (typeof request.action !== 'string' || !ACTIONS.includes(request.action as Action)) throw new Error('Unknown bridge action');
     const payload = plainRecord(request.payload, 'Payload');
     switch (request.action as Action) {
+      case 'translate': {
+        exactFields(payload,['text','source','target']);const input=validateTranslation(payload);if(!context.translate)throw Error('Translation is unavailable in this mode.');
+        const translation=await context.translate(payload);let warning:string|undefined;
+        try{await context.store.appendTranslation({...input,translation,model:'gpt-5.6-sol / medium'});}catch{warning='翻译已完成，但历史保存失败；请复制译文后检查本机存储。';}
+        return {type:'result',id,ok:true,translation,...(warning?{error:warning}:{})};
+      }
       case 'ui.ready': exactFields(payload, []); break;
       case 'quota.refresh': exactFields(payload, []); await context.refreshQuota(); break;
       case 'ui.detach': exactFields(payload, []); await context.detach(); break;

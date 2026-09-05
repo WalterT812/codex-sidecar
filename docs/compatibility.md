@@ -36,7 +36,16 @@ The adapter intentionally refuses unknown desktop layouts. An alpha with this bo
 3. Sidecar discovers the installed Store app and starts it with a loopback debugging endpoint. A successful launch prints `SIDECAR_READY=1` after a supported window accepts the components.
 4. Check the quota indicator, drawer, a saved note, and a second Codex window.
 
-No process is force-closed. If an existing desktop has no verified connection, startup fails with an explanation. Translation remains a planned component; this release does not provide translation.
+No process is force-closed. If an existing desktop has no verified connection, startup fails with an explanation. Alpha.6 provides explicit Sol translation with medium reasoning and local translation history.
+
+## Alpha.6 live verification (2026-09-05)
+
+- 119 automated tests passed, plus the Windows launcher parent-exit and error-handling checks.
+- The installed Windows-subsystem launcher reused a ready companion in about 1.85 seconds. Five seconds of visible-shell-window sampling detected no new console windows. A current-user Startup shortcut and Ctrl+Alt+X desktop hotkey were verified; no full sign-out/reboot test was performed.
+- The native drawer began at y=94 below the header bottom y=82, with no quota-chip overlap. It returned to its normal right-edge position, hid the pinned summary while open, and handed the area back on a native summary click.
+- The selected task title was white at full opacity and its icon used a transparent white outline. Chromium reported HarmonyOS Sans SC as the actual rendered font for a mixed Chinese/Latin/digit sample, and both native UI and drawer CSS used that family.
+- Sol returned a real Chinese translation. Saved history survived the next companion reload and was recalled in the drawer. Motion remained off on both sides and Windows reduced motion stayed enabled.
+- Codex's original desktop PID and creation time remained unchanged. Full future-version and every-native-dialog coverage remain outside this acceptance.
 
 ## Updates and recovery
 

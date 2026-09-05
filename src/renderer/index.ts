@@ -1,7 +1,12 @@
 import type { Action, Bookmark, HostMessage, Note, QuotaSnapshot, StoredState } from '../shared/types.js';
 import { button, currentThreadUrl, dateLabel, element, icon, periodLabel, validLink } from './components.js';
 import { styles } from './styles.js';
+import { royalStyles } from './royal-styles.js';
 import { createNativeTheme } from './theme.js';
+import { createTranslator } from './translator.js';
+import { createWorkspaces } from './workspaces.js';
+import {drawerPlacement} from './placement.js';
+import {createSummaryMode} from './summary-mode.js';
 
 declare const __SIDECAR_ART_URL__: string;
 declare const __SIDECAR_WALLPAPER_URL__: string;
@@ -15,7 +20,7 @@ declare global {
     __codexSidecarSend?: (json: string) => void;
   }
 }
-type View = 'notes' | 'bookmarks' | 'settings';
+type View = 'notes' | 'bookmarks' | 'translation' | 'settings';
 type Draft = { kind: 'note' | 'bookmark'; id?: string; title: string; body: string; url: string; revision: number; dirty: boolean };
 const ROOT_ID = 'codex-sidecar-root';
 
@@ -64,11 +69,14 @@ export function mountSidecar(win: Window): SidecarApi | null {
   let hoverTimer: number | undefined;
   let closeTimer: number | undefined;
   const timers = new Set<number>();
-  const pending = new Map<string, { action: Action; timeout: number; done?: () => void }>();
+  const pending = new Map<string, { action: Action; timeout: number; done?: (message:Extract<HostMessage,{type:'result'}>) => void; fail?: (error:Error)=>void }>();
   const demo = win.__CODEX_SIDECAR_BOOT__?.demo === true;
   const version = win.__CODEX_SIDECAR_BOOT__?.version ?? '0.1';
   const artworkUrl = typeof __SIDECAR_ART_URL__ === 'string' && /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(__SIDECAR_ART_URL__) ? __SIDECAR_ART_URL__ : '';
   const nativeTheme = demo ? null : createNativeTheme(document, typeof __SIDECAR_WALLPAPER_URL__ === 'string' ? __SIDECAR_WALLPAPER_URL__ : '');
+  const workspaces = demo ? null : createWorkspaces(win);
+  const summaryMode=demo?null:createSummaryMode(document,()=>setOpen(false));
+  const translator = createTranslator(win, (text,source,target)=>new Promise((resolve,reject)=>send('translate',{text,source,target},message=>{if(message.error)setError(message.error);if(typeof message.translation==='string')resolve(message.translation);else reject(Error('Translation response missing.'));},reject)),()=>{if(state)send('translation.clear',{revision:state.revision});});
   const zh = () => state?.settings.locale !== 'en';
   const t = (cn: string, en: string) => zh() ? cn : en;
   const later = (fn: () => void, ms: number) => {
@@ -84,7 +92,7 @@ export function mountSidecar(win: Window): SidecarApi | null {
   host.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:2147483000;isolation:isolate;';
   const shadow = host.attachShadow({ mode: 'open' });
   const style = element(document, 'style');
-  style.textContent = styles;
+  style.textContent = styles + royalStyles;
   const root = element(document, 'div', 'root');
   const chip = button(document, 'Sidecar', 'quota-chip', 'spark', 'quota-chip');
   // Native AppShell headers are draggable Electron regions. This widget must
@@ -127,22 +135,28 @@ export function mountSidecar(win: Window): SidecarApi | null {
   content.dataset.testid = 'content';
   const footer = element(document, 'div', 'footer');
   drawer.append(header, quotaSection, status, tabs, content, footer);
-  root.append(chip, trigger, drawer);
+  const rail=element(document,'nav','tool-rail');rail.setAttribute('aria-label','Sidecar tools');rail.append(trigger);
+  for(const kind of ['notes','bookmarks','translation'] as const){
+    const tool=button(document,kind==='notes'?'便签':kind==='bookmarks'?'收藏':'翻译',`rail-${kind}`,kind==='notes'?'note':kind==='bookmarks'?'bookmark':'translate','icon-button');
+    tool.onclick=()=>{view=kind;renderNavigation();renderContent();setOpen(true,true);};rail.append(tool);
+  }
+  root.append(chip, rail, drawer);
   shadow.append(style, root);
   document.body.append(host);
 
-  function send(action: Action, payload: Record<string, unknown> = {}, done?: () => void): void {
+  function send(action: Action, payload: Record<string, unknown> = {}, done?: (message:Extract<HostMessage,{type:'result'}>) => void, fail?: (error:Error)=>void): void {
     if (destroyed) return;
-    if (!win.__codexSidecarSend) { setError(t('连接尚未就绪，请重新连接 Sidecar。', 'Sidecar is not connected. Please reconnect it.')); return; }
+    if (!win.__codexSidecarSend) { const error=Error(t('连接尚未就绪，请重新连接 Sidecar。', 'Sidecar is not connected. Please reconnect it.'));setError(error.message);fail?.(error);return; }
     const id = `sidecar-${Date.now().toString(36)}-${++sequence}`;
     const timeout = later(() => {
       pending.delete(id);
+      fail?.(Error('Translation request timed out.'));
       setError(t('操作超时。草稿仍保留，请检查连接后重试。', 'The operation timed out. Your draft is kept; check the connection and retry.'));
       renderBusy();
-    }, 15_000);
-    pending.set(id, { action, timeout, done });
+    }, action==='translate'?100_000:15_000);
+    pending.set(id, { action, timeout, done, fail });
     try { win.__codexSidecarSend(JSON.stringify({ id, action, payload })); }
-    catch { cancel(timeout); pending.delete(id); setError(t('无法连接本地 Sidecar。', 'Could not reach the local Sidecar.')); }
+    catch { cancel(timeout); pending.delete(id); const error=Error(t('无法连接本地 Sidecar。', 'Could not reach the local Sidecar.'));setError(error.message);fail?.(error); }
     renderBusy();
   }
   function setError(message: string): void {
@@ -162,6 +176,8 @@ export function mountSidecar(win: Window): SidecarApi | null {
   function setOpen(value: boolean, focus = false): void {
     cancel(hoverTimer); cancel(closeTimer);
     opened = value;
+    summaryMode?.setOpen(value);
+    positionDrawer();
     drawer.hidden = !value;
     trigger.setAttribute('aria-expanded', String(value));
     if (value && focus) drawer.focus();
@@ -197,7 +213,7 @@ export function mountSidecar(win: Window): SidecarApi | null {
       key.preventDefault(); buttons[next]?.click(); tabs.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus();
     }
   }
-  function firstView(): View { return state?.settings.enabled.notes ? 'notes' : state?.settings.enabled.bookmarks ? 'bookmarks' : 'settings'; }
+  function firstView(): View { return state?.settings.enabled.notes ? 'notes' : state?.settings.enabled.bookmarks ? 'bookmarks' : state?.settings.enabled.translation !== false ? 'translation' : 'settings'; }
 
   function positionChip(): void {
     if (destroyed || !anchor) return;
@@ -234,6 +250,16 @@ export function mountSidecar(win: Window): SidecarApi | null {
     const gap = gaps.at(-1);
     chip.style.visibility = gap ? 'visible' : 'hidden';
     if (gap) { chip.style.right = `${Math.max(10, win.innerWidth - gap.end)}px`; chip.style.top = `${Math.max(5, rect.top + (rect.height - 29) / 2)}px`; }
+  }
+  function positionDrawer():void{
+    if(destroyed)return;
+    const obstacles=Array.from(document.querySelectorAll<HTMLElement>('[data-pip-obstacle="thread-summary-panel"]')).filter(node=>win.getComputedStyle(node).display!=='none').map(node=>node.getBoundingClientRect());
+    const placement=drawerPlacement(win.innerWidth,win.innerHeight,obstacles);
+    // The native header is taller on menu-bar and edge-scroll layouts.
+    placement.top=Math.max(placement.top,anchor!.getBoundingClientRect().bottom+12);
+    drawer.style.right=placement.right+'px';drawer.style.top=placement.top+'px';drawer.style.width=placement.width+'px';
+    drawer.style.maxHeight=Math.max(120,win.innerHeight-placement.top-14)+'px';
+    rail.style.right=placement.railRight+'px';
   }
   function renderQuota(): void {
     const enabled = state?.settings.enabled.quota !== false;
@@ -292,16 +318,16 @@ export function mountSidecar(win: Window): SidecarApi | null {
     pinButton.disabled = !state;
     closeButton.title = closeButton.ariaLabel = t('收起', 'Close');
     tabs.replaceChildren();
-    tabs.hidden = view === 'settings' || !state || (!state.settings.enabled.notes && !state.settings.enabled.bookmarks);
-    for (const kind of ['notes', 'bookmarks'] as const) {
-      if (!state?.settings.enabled[kind]) continue;
-      const tab = button(document, kind === 'notes' ? t('便签', 'Notes') : t('书签', 'Bookmarks'), `tab-${kind}`, kind === 'notes' ? 'note' : 'bookmark', 'tab');
+    tabs.hidden = view === 'settings' || !state;
+    for (const kind of ['notes', 'bookmarks', 'translation'] as const) {
+      if (!state || state.settings.enabled[kind] === false) continue;
+      const tab = button(document, kind === 'notes' ? t('便签', 'Notes') : kind === 'translation' ? t('翻译', 'Translate') : t('收藏', 'Bookmarks'), `tab-${kind}`, kind === 'notes' ? 'note' : kind === 'translation' ? 'translate' : 'bookmark', 'tab');
       tab.id = `sidecar-tab-${kind}`;
       tab.setAttribute('role', 'tab');
       tab.setAttribute('aria-selected', String(view === kind));
       tab.setAttribute('aria-controls', content.id);
       tab.tabIndex = view === kind ? 0 : -1;
-      tab.append(element(document, 'span', 'count', String(state[kind].length)));
+      if(kind !== 'translation')tab.append(element(document, 'span', 'count', String(state[kind].length)));
       tab.onclick = () => { view = kind; renderNavigation(); renderContent(); };
       tabs.append(tab);
     }
@@ -338,6 +364,7 @@ export function mountSidecar(win: Window): SidecarApi | null {
     content.replaceChildren();
     if (!state) { content.append(element(document, 'p', 'no-components', t('正在连接本地 Sidecar…', 'Connecting to the local Sidecar…'))); return; }
     if (view === 'settings') { renderSettings(); return; }
+    if (view === 'translation') { translator.language(zh()); content.append(translator.element); return; }
     if (draft && ((view === 'notes' && draft.kind === 'note') || (view === 'bookmarks' && draft.kind === 'bookmark'))) { renderEditor(draft); return; }
     renderArtwork();
     const kind = view === 'notes' ? 'note' : 'bookmark';
@@ -437,9 +464,9 @@ export function mountSidecar(win: Window): SidecarApi | null {
   function renderSettings(): void {
     if (!state) return;
     content.append(element(document, 'h2', 'settings-heading', t('让 Sidecar 刚刚好', 'Make Sidecar your own')), element(document, 'p', 'settings-intro', t('只留下你需要的小组件。每一项都可以独立关闭。', 'Keep the small tools you need. Each component works independently.')));
-    const labels = { quota: [t('额度指示器', 'Quota indicator'), t('在标题栏查看真实剩余额度', 'See real remaining quota in the title bar')], notes: [t('便签', 'Notes'), t('随手记录，保存在本机', 'Capture thoughts and save them locally')], bookmarks: [t('书签', 'Bookmarks'), t('收藏链接，回到原对话', 'Keep links to original conversations')], artwork: [t('插画封面', 'Illustrated cover'), t('一点温柔的色彩，编辑时自动收起', 'A touch of color, tucked away while you write')] };
-    const themeLabels = { ...labels, theme: [t('珠光工坊 · 整窗主题', 'Pearl Atelier · whole-window theme'), t('侧栏、任务条目、字体、背景和对话框；关闭即恢复', 'Sidebar, tasks, typography, wallpaper and composer; turn off to restore')] };
-    for (const key of ['theme', 'quota', 'notes', 'bookmarks', 'artwork'] as const) {
+    const labels = { quota: [t('额度指示器', 'Quota indicator'), t('在标题栏查看真实剩余额度', 'See real remaining quota in the title bar')], notes: [t('便签', 'Notes'), t('随手记录，保存在本机', 'Capture thoughts and save them locally')], bookmarks: [t('书签', 'Bookmarks'), t('收藏链接，回到原对话', 'Keep links to original conversations')], artwork: [t('背景卡片', 'Artwork card'), t('一点温柔的色彩，编辑时自动收起', 'A touch of color, tucked away while you write')] };
+    const themeLabels = { ...labels, theme: [t('皇家紫金 · 明亮版', 'Royal Pearl · bright'), t('整窗紫金主题与专属背景；关闭即可恢复', 'Whole-window royal theme and wallpaper; turn off to restore')], motion:[t('流动渐变','Flowing gradients'),t('关闭即保持静态；只影响 Sidecar','Turn off for static gradients; affects only Sidecar')], translation:[t('翻译','Translate'),t('Sol · medium，带本机历史记录','Sol · medium with local history')], workspaces:[t('工作空间切换','Workspace switcher'),t('按原生分区查看记录，在空间中开启新聊天','View native sections and start chats in each space')] };
+    for (const key of ['theme', 'motion', 'workspaces', 'translation', 'quota', 'notes', 'bookmarks', 'artwork'] as const) {
       const row = element(document, 'label', 'setting-row');
       const copy = element(document, 'span', 'setting-copy'); copy.append(element(document, 'span', 'setting-title', themeLabels[key][0]), element(document, 'p', 'setting-description', themeLabels[key][1]));
       const toggle = element(document, 'input', 'switch'); toggle.type = 'checkbox'; toggle.checked = state.settings.enabled[key] !== false;
@@ -459,11 +486,16 @@ export function mountSidecar(win: Window): SidecarApi | null {
     detach.onclick = () => send('ui.detach'); bottom.append(detach); content.append(bottom);
   }
 
-  const onResize = () => positionChip();
+  const onResize = () => {positionChip();positionDrawer();};
   win.addEventListener('resize', onResize);
   const ResizeObserverClass = (win as unknown as { ResizeObserver?: typeof ResizeObserver }).ResizeObserver;
   const observer = ResizeObserverClass ? new ResizeObserverClass(positionChip) : null;
   observer?.observe(anchor);
+  const MutationObserverClass=(win as unknown as {MutationObserver?:typeof MutationObserver}).MutationObserver;
+  let placementTimer:number|undefined;
+  const placementObserver=MutationObserverClass?new MutationObserverClass(()=>{if(placementTimer===undefined)placementTimer=later(()=>{placementTimer=undefined;positionDrawer();},80);}):null;
+  const nativeRoot=document.getElementById('root');if(nativeRoot)placementObserver?.observe(nativeRoot,{childList:true,subtree:true,attributes:true,attributeFilter:['style','data-pip-obstacle']});
+  positionDrawer();
   const clock = win.setInterval(renderQuota, 30_000);
   const api: SidecarApi = {
     receive(message): void {
@@ -472,8 +504,8 @@ export function mountSidecar(win: Window): SidecarApi | null {
         const operation = pending.get(message.id);
         if (!operation) return;
         pending.delete(message.id); cancel(operation.timeout);
-        if (!message.ok) { setError(message.error || t('操作失败，请重试。', 'The operation failed. Please retry.')); if (operation.action === 'settings.patch') renderContent(); }
-        else operation.done?.();
+        if (!message.ok) { setError(message.error || t('操作失败，请重试。', 'The operation failed. Please retry.'));operation.fail?.(Error(message.error)); if (operation.action === 'settings.patch') renderContent(); }
+        else operation.done?.(message);
         renderBusy(); renderQuota();
         return;
       }
@@ -482,10 +514,15 @@ export function mountSidecar(win: Window): SidecarApi | null {
       const previousLocale = state?.settings.locale;
       const stateChanged = !state || state.revision !== message.state.revision || state.settings.locale !== message.state.settings.locale;
       state = message.state; quota = message.quota;
-      nativeTheme?.setEnabled(state.settings.enabled.theme !== false);
+      translator.language(zh());translator.setHistory(state.translations??[]);
+      nativeTheme?.setEnabled(state.settings.enabled.theme !== false, state.settings.enabled.motion !== false, state.settings.enabled.motion === true);
+      workspaces?.setEnabled(state.settings.enabled.workspaces !== false);
+      root.classList.toggle('motion',state.settings.enabled.motion !== false);
+      root.classList.toggle('force-motion',state.settings.enabled.motion === true);
       pinned = state.settings.panelPinned;
       if (firstSnapshot) { firstSnapshot = false; view = firstView(); if (pinned) setOpen(true); }
-      if (view !== 'settings' && !state.settings.enabled[view]) view = firstView();
+      if (view !== 'settings' && state.settings.enabled[view] === false) view = firstView();
+      for(const kind of ['notes','bookmarks','translation'] as const)rail.querySelector<HTMLElement>(`[data-testid="rail-${kind}"]`)!.hidden=state.settings.enabled[kind]===false;
       renderQuota();
       if (!stateChanged) return;
       if (draft && previousRevision !== undefined && previousRevision !== state.revision) syncMessage = t('草稿已保留', 'Draft kept');
@@ -502,11 +539,14 @@ export function mountSidecar(win: Window): SidecarApi | null {
     destroy(): void {
       if (destroyed) return;
       destroyed = true;
+      for(const operation of pending.values())operation.fail?.(Error('Sidecar detached.'));
       for (const id of timers) win.clearTimeout(id);
       timers.clear(); pending.clear(); win.clearInterval(clock);
       observer?.disconnect(); win.removeEventListener('resize', onResize); shadow.removeEventListener('keydown', onKeydown); drawer.removeEventListener('focusout', onFocusOut);
+      placementObserver?.disconnect();
       host.remove();
       nativeTheme?.destroy();
+      workspaces?.destroy(); translator.destroy();summaryMode?.destroy();
       if (win.__CODEX_SIDECAR__ === api) delete win.__CODEX_SIDECAR__;
       state = null; quota = null; draft = null;
     },

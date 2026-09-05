@@ -1,0 +1,10 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {JSDOM} from 'jsdom';import {createTranslator} from '../src/renderer/translator.js';
+test('Sol translation runs only on submit and preserves inputs across views',async()=>{
+ const dom=new JSDOM('',{url:'https://test.example'});let calls=0;const tool=createTranslator(dom.window as unknown as Window,async text=>{calls++;assert.equal(text,'Hello');return '你好';});dom.window.document.body.append(tool.element);
+ const input=tool.element.querySelector<HTMLTextAreaElement>('[data-testid="translate-input"]')!;input.value='Hello';assert.equal(calls,0);tool.element.dispatchEvent(new dom.window.Event('submit',{cancelable:true}));await new Promise(r=>setTimeout(r,5));assert.equal(tool.element.querySelector<HTMLTextAreaElement>('[data-testid="translate-output"]')!.value,'你好');assert.equal(calls,1);
+ tool.element.remove();tool.language(false);dom.window.document.body.append(tool.element);assert.equal(input.value,'Hello');assert.equal(tool.element.querySelector('[data-testid="translate-external"]'),null);tool.destroy();dom.window.close();
+});
+test('failure keeps source, no fallback is called, and history recalls the saved result',async()=>{
+ const dom=new JSDOM('');const tool=createTranslator(dom.window as unknown as Window,async()=>{throw Error('unavailable');});const input=tool.element.querySelector<HTMLTextAreaElement>('textarea')!;input.value='keep this';tool.element.dispatchEvent(new dom.window.Event('submit',{cancelable:true}));await new Promise(r=>setTimeout(r,5));assert.equal(input.value,'keep this');assert.match(tool.element.querySelector('[role="status"]')!.textContent!,/原文已保留/);
+ tool.setHistory([{id:'one',text:'Hello',translation:'你好',source:'en',target:'zh',createdAt:new Date().toISOString(),model:'sol'}]);tool.element.querySelector<HTMLButtonElement>('[data-testid="translate-history-item"]')!.click();assert.equal(input.value,'Hello');assert.equal(tool.element.querySelector<HTMLTextAreaElement>('[data-testid="translate-output"]')!.value,'你好');tool.destroy();dom.window.close();
+});

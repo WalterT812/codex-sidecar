@@ -8,8 +8,9 @@ export function element<K extends keyof HTMLElementTagNameMap>(
   return node;
 }
 
-export type IconName = 'spark' | 'note' | 'bookmark' | 'settings' | 'close' | 'pin' | 'plus' | 'back' | 'refresh' | 'arrow' | 'trash';
+export type IconName = 'spark' | 'note' | 'bookmark' | 'settings' | 'close' | 'pin' | 'plus' | 'back' | 'refresh' | 'arrow' | 'trash' | 'translate';
 const paths: Record<IconName, string[]> = {
+  translate: ['M3 5h12','M9 3v2','M6 5c0 6 3 9 7 11','M12 5c0 6-4 10-9 13','m14 21 4-11 4 11','M16 17h4'],
   spark: ['M12 2c2 6 4 8 10 10-6 2-8 4-10 10C10 16 8 14 2 12c6-2 8-4 10-10Z', 'M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6'],
   note: ['M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Z', 'M14 3v6h6', 'M8 13h8', 'M8 17h5'],
   bookmark: ['M6 4h12v17l-6-4-6 4Z'],

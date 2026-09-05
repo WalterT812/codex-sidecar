@@ -1,4 +1,4 @@
-﻿param([switch]$Preview, [switch]$Stop)
+﻿param([switch]$Preview, [switch]$Stop, [switch]$Startup)
 $ErrorActionPreference = 'Stop'
 $configPath = Join-Path $PSScriptRoot 'install.json'
 try {
@@ -50,9 +50,11 @@ try {
     if (-not $failure) { $failure = "等待 $timeoutSeconds 秒后仍未确认就绪。Sidecar 可能仍在后台等待连接。" }
     $detail = if (Test-Path -LiteralPath $errLog) { (Get-Content -LiteralPath $errLog -Tail 12 -Encoding UTF8) -join "`n" } else { '' }
     if ($detail.Length -gt 3000) { $detail = $detail.Substring($detail.Length - 3000) }
+    if ($Startup) { Add-Content -LiteralPath $errLog -Value $failure -Encoding UTF8; return }
     Add-Type -AssemblyName PresentationFramework
     [System.Windows.MessageBox]::Show("$failure`n`nCodex 没有被强制关闭。首次启用时，请完成手上的工作并正常退出 Codex，再打开这个入口。`n`n$detail`n`n本次日志：`n$outLog`n$errLog", 'Codex Sidecar', 'OK', 'Information') | Out-Null
 } catch {
+    if ($Startup) { return }
     Add-Type -AssemblyName PresentationFramework
     $detail = [string]$_.Exception.Message
     if ($detail.Length -gt 3000) { $detail = $detail.Substring(0, 3000) }
