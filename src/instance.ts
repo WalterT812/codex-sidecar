@@ -89,7 +89,6 @@ export async function startInstanceServer(ownerInput: LockOwner, handler: (reque
     };
     const fail = (reason: unknown) => respond({ type: 'error', error: message(reason) });
     timer = setTimeout(() => { fail('The instance handshake timed out.'); socket.destroySoon(); }, HELLO_TIMEOUT);
-    replies.set(socket, reason => respond({ type: 'stopping', error: message(reason) }));
     socket.once('close', () => {
       clearTimeout(timer); sockets.delete(socket); replies.delete(socket);
       if (!processing) slots.delete(slot);
@@ -108,6 +107,9 @@ export async function startInstanceServer(ownerInput: LockOwner, handler: (reque
         fields(request, Object.hasOwn(request, 'requestedPort') ? ['type', 'nonce', 'token', 'pid', 'requestedPort'] : ['type', 'nonce', 'token', 'pid']);
         if (request.type !== 'hello' || nonce === 'invalid' || request.token !== owner.token || request.pid !== owner.pid) throw new Error('The instance request identity does not match its owner.');
         if (Object.hasOwn(request, 'requestedPort') && !validPort(request.requestedPort)) throw new Error('Invalid requested port.');
+        // Before authentication, close the socket without inventing a response
+        // nonce; the caller will retry the listener while the old lock remains.
+        replies.set(socket, reason => respond({ type: 'stopping', error: message(reason) }));
         const requestedPort = request.requestedPort as number | undefined;
         processing = true;
         timer = setTimeout(() => { fail('The existing Sidecar did not become ready in time.'); socket.destroySoon(); }, READY_TIMEOUT);

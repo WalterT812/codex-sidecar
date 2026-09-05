@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, writeFile, rm, unlink } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import { createConnection, createServer, type Socket } from 'node:net';
+import net, { createConnection, createServer, type Socket } from 'node:net';
+import { syncBuiltinESMExports } from 'node:module';
 import { setTimeout as delay } from 'node:timers/promises';
 import { acquireLock, type LockOwner } from '../src/lock.js';
 import { InstanceOwnerChangedError, startInstanceServer, waitForInstance } from '../src/instance.js';
@@ -107,6 +108,37 @@ test('owner disappearance aborts a pending join and close does not wait on an un
   await pending;
   const before = Date.now(); await server.close('Desktop closed');
   assert.ok(Date.now() - before < 1000);
+});
+
+test('closing after accept but before hello waits for lock release instead of failing identity validation', async t => {
+  const { directory, owner, lock } = await fixture(t);
+  const originalCreateServer = net.createServer;
+  let accepted!: () => void; const connectionAccepted = new Promise<void>(resolve => { accepted = resolve; });
+  let closeOnAccept!: () => void;
+  let closing: Promise<void> | undefined;
+  let calls = 0;
+  // Use real sockets; force shutdown at the exact accept-before-data boundary.
+  const intercepted = t.mock.method(net, 'createServer', (...args: Parameters<typeof net.createServer>) => {
+    const server = Reflect.apply(originalCreateServer, net, args) as ReturnType<typeof net.createServer>;
+    server.on('connection', () => { closeOnAccept(); accepted(); });
+    return server;
+  });
+  syncBuiltinESMExports();
+  let server: Awaited<ReturnType<typeof startInstanceServer>>;
+  try { server = await startInstanceServer(owner, async () => { calls++; return READY; }); }
+  finally { intercepted.mock.restore(); syncBuiltinESMExports(); }
+  closeOnAccept = () => { closing = server.close('Desktop ended before hello'); };
+  let settled = false;
+  const waiter = waitForInstance(directory, owner, undefined, 2000);
+  void waiter.then(() => { settled = true; }, () => { settled = true; });
+  const pending = assert.rejects(waiter, InstanceOwnerChangedError); void pending.catch(() => {});
+  try {
+    await connectionAccepted; await closing; await delay(150);
+    assert.equal(settled, false, 'an unauthenticated close must keep waiting for the authoritative lock');
+    assert.equal(calls, 0);
+    assert.equal(JSON.parse(await readFile(join(directory, 'companion.lock'), 'utf8')).token, owner.token);
+    await lock.release(); await pending;
+  } finally { await server.close(); await lock.release(); }
 });
 
 test('an authenticated stopping reply waits for actual lock release before permitting a retry', async t => {
