@@ -19,7 +19,7 @@ import {translateWithCodex} from './translation.js';
 import type { HostMessage, QuotaSnapshot } from './shared/types.js';
 
 const exec = promisify(execFile);
-export const VERSION = '0.1.0-alpha.14';
+export const VERSION = '0.1.0-alpha.15';
 export async function availablePort() {
   const server = createServer();
   await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
@@ -54,6 +54,7 @@ export interface RuntimeServices {
   owner: typeof getVerifiedDesktopOwner;
   renderer: () => Promise<string>;
   discoverCli: typeof discoverCodexCli;
+  startMobile: typeof startMobileRelay;
   targets: typeof listTargets;
   connect: (url: string) => Promise<DesktopConnection>;
   pollMs: number;
@@ -67,7 +68,7 @@ export async function startCompanion(options: { port?: number; attachOnly?: bool
     directory: dataDirectory(), discoverApp: discoverWindowsApp, choosePort: chooseDesktopPort,
     owner: getVerifiedDesktopOwner,
     renderer: () => readFile(fileURLToPath(new URL('./renderer.js', import.meta.url)), 'utf8'),
-    discoverCli: discoverCodexCli, targets: listTargets, connect: url => CdpConnection.connect(url),
+    startMobile:startMobileRelay, discoverCli: discoverCodexCli, targets: listTargets, connect: url => CdpConnection.connect(url),
     pollMs: 5000, startupMs: 30_000, startupPollMs: 1000, stopPollMs: 1000, ...overrides,
   };
   const directory = services.directory;
@@ -162,23 +163,35 @@ export async function startCompanion(options: { port?: number; attachOnly?: bool
       }
     }, services.stopPollMs));
     process.once('SIGINT', onSignal); process.once('SIGTERM', onSignal);
+    async function startupCancelled() {
+      if(stopping)return true;
+      try {
+        if(await readFile(join(directory,'stop.request'),'utf8')===ownedLock.token) {
+          // Called within tracked startup work: awaiting shutdown here would
+          // wait on this operation itself. Mark stopping now and drain outside.
+          void shutdown().catch(error=>console.error((error as Error).message));
+          return true;
+        }
+      } catch(error) {if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}
+      return stopping;
+    }
     // Keep ownership until every startup operation has settled. Resource creation
     // must not resume after shutdown has already released the single-writer lock.
     const prepared = await work.run(async () => {
       const store = await StateStore.open(join(directory, 'state.json'));
-      if (stopping) return;
+      if (await startupCancelled()) return;
       const app = await services.discoverApp();
-      if (stopping) return;
+      if (await startupCancelled()) return;
       const port = await services.choosePort(app, options.port, options.attachOnly);
-      if (stopping) return;
+      if (await startupCancelled()) return;
       const originalOwner = await services.owner(port, app);
-      if (stopping) return;
+      if (await startupCancelled()) return;
       if (!originalOwner) throw new Error('The original Codex desktop process could not be verified.');
       const renderer = await services.renderer();
-      if (stopping) return;
+      if (await startupCancelled()) return;
       try {
         cliPath = await services.discoverCli();
-        if (stopping) return;
+        if (await startupCancelled()) return;
         client = new AccountClient(cliPath);
       } catch { quota.error = 'Codex CLI was not found; notes and bookmarks remain available.'; }
       if (stopping) return;
@@ -324,7 +337,9 @@ export async function startCompanion(options: { port?: number; attachOnly?: bool
     }
     if (stopping) { await shutdown(); return; }
     if (!pages.size) throw new Error('No supported Codex window accepted the components. Check Sidecar compatibility; the official app was left unchanged.');
-    mobile=await startMobileRelay(directory,{
+    await work.run(async()=>{
+    if(stopping)return;
+    const started=await services.startMobile(directory,{
       store,broadcast,
       call:async(action,value)=>{
         if(stopping||!await originalDesktopIsAlive())throw Error('Desktop disconnected');
@@ -337,6 +352,10 @@ export async function startCompanion(options: { port?: number; attachOnly?: bool
         if(!result?.ok)throw Error('Native mobile action failed');return result.data;
       },
     }).catch(()=>{console.warn('Private mobile relay unavailable; desktop tools remain active.');return null;});
+    if(stopping){await started?.stop();return;}
+    mobile=started;
+    });
+    if(stopping){await shutdown();return;}
     resolveReady();
     console.log('SIDECAR_READY=1');
     void refreshQuota();

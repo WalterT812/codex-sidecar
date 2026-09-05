@@ -1,11 +1,13 @@
 # Compatibility and acceptance
 
-Status checked on **5 September 2026**. Version **0.1.0-alpha.14** is an early Windows companion, not an official extension API.
+Status checked on **5 September 2026**. Version **0.1.0-alpha.15** is an early Windows companion, not an official extension API.
 
-## Current acceptance — alpha.14
+## Current acceptance — alpha.15
 
-- 142 automated tests, TypeScript and build passed. New tests cover source identity, personal editor draft isolation, learning progress, mobile authentication/deduplication, unknown send recovery and safe Markdown rendering. Lifecycle fixtures now tolerate loaded Windows runners and have bounded gate waits.
-- Two real native desktop windows show alpha.14. Dedicated focus exit preserves original panel state and never binds Escape. Ctrl+Alt+D native toggle dictation registration was accepted; no recording was made during QA.
+Alpha.15 also checks durable stop requests between startup phases and drains delayed mobile initialization before releasing ownership.
+
+- 143 automated tests, TypeScript and build passed. New tests cover source identity, personal editor draft isolation, learning progress, mobile authentication/deduplication, unknown send recovery and safe Markdown rendering. Lifecycle fixtures now tolerate loaded Windows runners and have bounded gate waits.
+- Two real native desktop windows show alpha.15. Dedicated focus exit preserves original panel state and never binds Escape. Ctrl+Alt+D native toggle dictation registration was accepted; no recording was made during QA.
 - Exact navigation to a previously unloaded historical message and to a message in another existing task both passed, then returned to the starting task. Search hydration uses the official manager's complete-history fallback for a verified legacy cursor failure.
 - The appearance slider produced a measured 18px font on both native replies and composer, then restored the saved value. Personal editor DOM nodes survive task switches. Learning questions and student answers can be persisted; a real Sol request returned the required question/answer/evidence structure.
 - The isolated HTTPS mobile service returns 401 for anonymous chat reads and leaves the existing site responding normally. A fresh 390×844 browser paired successfully, listed 44 real tasks and read 91 source messages; drafts remained isolated and were restored on return. No page errors or horizontal page overflow occurred. Pairing sessions used during QA were logged out.
@@ -88,7 +90,7 @@ Personal account data, authentication files and native conversation databases ar
 - Notes, bookmarks and translation can stay open together. Their duplicate internal tab row is hidden; closing one does not close another. One host bridge distributes snapshots and routes results through unique per-panel request IDs.
 - Every panel supports title-bar dragging, eight resize handles, keyboard movement/resize, viewport clamping and double-click reset. UI geometry is stored separately per tool and window; it does not modify note data or the native application layout.
 - 128 tests, TypeScript and build passed, including concurrent panels, isolated translation responses, draft preservation, drag cancellation, persisted layouts and all resize edges.
-- In the native renderer, dispatched pointer events moved a panel from (462,162) to (432,142), resized 571x605 to 591x625, and cancellation restored the user's original frame exactly. Three panels were simultaneously visible with no decorative card or visible internal tabs. Walter separately confirmed the interaction was useful.
+- In the native renderer, dispatched pointer events moved a panel from (462,162) to (432,143), resized 571x605 to 591x625, and cancellation restored the user's original frame exactly. Three panels were simultaneously visible with no decorative card or visible internal tabs. Walter separately confirmed the interaction was useful.
 - The reported wide table measured 1024px against a 690px content column with a -167px margin. After applying the fix, a live-renderer fixture reproducing those dimensions measured a 690px container, zero negative margin, and retained 1024px content inside horizontal scrolling. The original conversation had been switched away from before post-fix measurement; it was not reopened automatically.
 
 ## Alpha.10 — panels follow the current conversation (5 September 2026)

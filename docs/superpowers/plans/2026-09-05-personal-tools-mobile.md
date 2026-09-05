@@ -19,9 +19,9 @@
 
 ## Sequential deliverables
 
-### Delivery checkpoint — alpha.14
+### Delivery checkpoint — alpha.15
 
-- Installed on 5 September; 142 tests, typecheck and build passed. Native UI and 390px mobile browser were inspected.
+- Installed on 5 September; 143 tests, typecheck and build passed. Native UI and 390px mobile browser were inspected.
 - Unloaded source navigation and cross-task navigation both passed and returned to the original task.
 - Focus exits with its own button; appearance preview changes native reply and composer to the chosen size. Personal drafts and practice answers are preserved.
 - Isolated private HTTPS mobile service is deployed, with authenticated source reading and an outbound desktop relay. Computer-offline queue behavior is covered by tests. The original server site remains available.

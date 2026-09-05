@@ -114,6 +114,7 @@ test('a ready duplicate validates the live desktop and a manual stop drains all 
 
 test('stopping during discovery prevents the delayed first start from launching Codex', async t => {
   const app = await fixture(t);
+  app.services.stopPollMs=10000; // The boundary check, not a timing lucky poll, must prevent launch.
   let finishDiscovery!: () => void;
   app.setGate(new Promise<void>(resolve => { finishDiscovery = resolve; }));
   const starting = startCompanion({}, app.services);
@@ -126,6 +127,15 @@ test('stopping during discovery prevents the delayed first start from launching 
   await until(async () => !await exists(app.lockPath));
   assert.equal(app.launches(), 0);
   assert.equal(app.connections.length, 0);
+});
+
+test('stopping during mobile initialization drains the new relay before releasing ownership',async t=>{
+  const app=await fixture(t);let enter!:()=>void,finish!:()=>void,stops=0;
+  const entered=new Promise<void>(r=>enter=r),gate=new Promise<void>(r=>finish=r);
+  app.services.startMobile=async()=>{enter();await gate;return {status:()=>({configured:true,url:'https://example.com/',online:false,lastSeen:0,error:''}),pair:async()=>({}),revoke:async()=>({}),stop:async()=>{stops++;}};};
+  const starting=startCompanion({},app.services);await entered;
+  await requestStop(app.directory);await delay(35);assert.equal(await exists(app.lockPath),true);
+  finish();await starting;await until(async()=>!await exists(app.lockPath));assert.equal(stops,1);
 });
 
 test('an old ready result cannot hide the loss of all mounted widgets', async t => {
