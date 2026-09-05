@@ -1,3 +1,6 @@
+import {createPersonalTools} from './personal-tools.js';
+import {createMobileAccess} from './mobile.js';
+import type {MessageAnchor} from '../shared/anchors.js';
 import type { Action, Bookmark, HostMessage, Note, QuotaSnapshot, StoredState } from '../shared/types.js';
 import { button, currentThreadUrl, dateLabel, element, icon, periodLabel, validLink } from './components.js';
 import { styles } from './styles.js';
@@ -12,7 +15,7 @@ import {createConversationLayouts,type ToolKind} from './conversation-layouts.js
 declare const __SIDECAR_ART_URL__: string;
 declare const __SIDECAR_WALLPAPER_URL__: string;
 
-export interface SidecarApi { receive(message: HostMessage): void; destroy(): void }
+export interface SidecarApi { receive(message: HostMessage): void; destroy(): void; mobile?:(action:string,value?:unknown)=>Promise<unknown> }
 declare global {
   interface Window {
     __CODEX_SIDECAR__?: SidecarApi;
@@ -22,7 +25,7 @@ declare global {
   }
 }
 type View = 'notes' | 'bookmarks' | 'translation' | 'settings';
-type Draft = { kind: 'note' | 'bookmark'; id?: string; title: string; body: string; url: string; revision: number; dirty: boolean };
+type Draft = { kind: 'note' | 'bookmark'; id?: string; title: string; body: string; url: string; revision: number; dirty: boolean; source?:MessageAnchor };
 const ROOT_ID = 'codex-sidecar-root';
 
 function nativeAnchor(win: Window): HTMLElement | null {
@@ -41,8 +44,8 @@ function nativeAnchor(win: Window): HTMLElement | null {
   }) ?? null;
 }
 
-interface PanelApi extends SidecarApi { show(view?:View):void;activate(scope:string,open:boolean,inherit?:boolean):void }
-interface PanelOptions { tool?:'bookmarks'|'translation'; openTool?:(kind:'notes'|'bookmarks'|'translation')=>void; front?:()=>number;visibility?:(open:boolean)=>void }
+interface PanelApi extends SidecarApi { show(view?:View):void;setTranslation(text:string):void;activate(scope:string,open:boolean,inherit?:boolean):void }
+interface PanelOptions { tools?:()=>void; source?:(anchor:MessageAnchor)=>Promise<void>; tool?:'bookmarks'|'translation'; openTool?:(kind:'notes'|'bookmarks'|'translation')=>void; front?:()=>number;visibility?:(open:boolean)=>void }
 /** One bridge receiver owns all tool windows; each window keeps its own draft. */
 export function mountSidecar(win:Window):SidecarApi|null{
  win.__CODEX_SIDECAR__?.destroy();
@@ -50,18 +53,20 @@ export function mountSidecar(win:Window):SidecarApi|null{
  const front=()=>++layer;
  const ensure=(kind:'bookmarks'|'translation')=>{
   let panel=panels.get(kind);
-  if(!panel){panel=mountPanel(win,{tool:kind,front,visibility:value=>layouts.setOpen(kind,value)})??undefined;if(!panel)return;panels.set(kind,panel);if(snapshot)panel.receive(snapshot);panel.activate(layouts.scope,layouts.isOpen(kind),layouts.scope===initialScope);}
+  if(!panel){panel=mountPanel(win,{tool:kind,front,source:anchor=>personal.navigate(anchor),visibility:value=>layouts.setOpen(kind,value)})??undefined;if(!panel)return;panels.set(kind,panel);if(snapshot)panel.receive(snapshot);panel.activate(layouts.scope,layouts.isOpen(kind),layouts.scope===initialScope);}
   return panel;
  };
  const openTool=(kind:ToolKind)=>{layouts.check();if(kind==='notes')primary?.show('notes');else ensure(kind)?.show();};
- const primary=mountPanel(win,{openTool,front,visibility:value=>layouts.setOpen('notes',value)});if(!primary)return null;
+ const primary=mountPanel(win,{openTool,front,tools:()=>personal.open(),source:anchor=>personal.navigate(anchor),visibility:value=>layouts.setOpen('notes',value)});if(!primary)return null;
  const layouts=createConversationLayouts(win,scope=>{
   primary.activate(scope,layouts.isOpen('notes'));
   for(const kind of ['bookmarks','translation'] as const){const panel=panels.get(kind);if(panel)panel.activate(scope,layouts.isOpen(kind));else if(layouts.isOpen(kind))ensure(kind);}
  });
  const initialScope=layouts.scope;primary.activate(initialScope,layouts.isOpen('notes'),true);
  for(const kind of ['bookmarks','translation'] as const)if(layouts.isOpen(kind))ensure(kind);
- const api:SidecarApi={receive(message){if(message.type==='snapshot')snapshot=message;primary.receive(message);for(const panel of panels.values())panel.receive(message);},destroy(){layouts.destroy();primary.destroy();for(const panel of panels.values())panel.destroy();panels.clear();if(win.__CODEX_SIDECAR__===api)delete win.__CODEX_SIDECAR__;}};
+ const personal=createPersonalTools(win,text=>{const panel=ensure('translation');panel?.setTranslation(text);panel?.show();});
+ const api:SidecarApi={receive(message){if(message.type==='snapshot')snapshot=message;personal.receive(message);primary.receive(message);for(const panel of panels.values())panel.receive(message);},destroy(){personal.destroy();layouts.destroy();primary.destroy();for(const panel of panels.values())panel.destroy();panels.clear();if(win.__CODEX_SIDECAR__===api)delete win.__CODEX_SIDECAR__;}};
+ api.mobile=createMobileAccess(win);
  win.__CODEX_SIDECAR__=api;return api;
 }
 function mountPanel(win:Window,options:PanelOptions):PanelApi|null {
@@ -159,6 +164,7 @@ function mountPanel(win:Window,options:PanelOptions):PanelApi|null {
     const tool=button(document,kind==='notes'?'便签':kind==='bookmarks'?'收藏':'翻译',`rail-${kind}`,kind==='notes'?'note':kind==='bookmarks'?'bookmark':'translate','icon-button');
     tool.onclick=()=>options.openTool?.(kind);rail.append(tool);
   }
+  if(!options.tool){const more=button(document,'工具箱','rail-tools','plus','icon-button');more.onclick=()=>options.tools?.();rail.append(more);}
   if(options.tool){rail.hidden=true;quotaSection.hidden=true;}
   root.append(chip, rail, drawer);
   shadow.append(style, root);
@@ -354,7 +360,7 @@ function mountPanel(win:Window,options:PanelOptions):PanelApi|null {
 
   function startDraft(kind: Draft['kind'], item?: Note | Bookmark): void {
     if (!state) return;
-    draft = { kind, id: item?.id, title: item?.title ?? '', body: item ? ('body' in item ? item.body : item.excerpt) : '', url: item ? ('url' in item ? item.url : item.threadUrl ?? '') : kind === 'bookmark' ? currentThreadUrl(win.location) ?? '' : '', revision: state.revision, dirty: false };
+    draft = { kind, id: item?.id, title: item?.title ?? '', body: item ? ('body' in item ? item.body : item.excerpt) : '', url: item ? ('url' in item ? item.url : item.threadUrl ?? '') : kind === 'bookmark' ? currentThreadUrl(win.location) ?? '' : '', revision: state.revision, dirty: false, ...(item && 'source' in item && item.source?{source:item.source}:{}) };
     setError(''); renderContent();
     content.querySelector<HTMLInputElement>('[data-testid="editor-title"]')?.focus();
   }
@@ -392,7 +398,7 @@ function mountPanel(win:Window,options:PanelOptions):PanelApi|null {
       const empty = element(document, 'div', 'empty');
       const symbol = element(document, 'div', 'empty-symbol'); symbol.append(icon(document, kind));
       empty.append(symbol, element(document, 'h2', '', view === 'notes' ? t('从一个小想法开始', 'Start with a small thought') : t('给好思路留一个入口', 'Keep a way back to good ideas')),
-        element(document, 'p', '', view === 'notes' ? t('随手记下提示词、待办或灵感。\n不需要打开任何项目。', 'Save a prompt, a to-do, or a thought.\nNo project needed.') : t('粘贴对话链接，添一段自己的摘要，\n下次直接回到原来的对话。', 'Paste a conversation link and add a short excerpt.\nReturn to the original conversation anytime.')));
+        element(document, 'p', '', view === 'notes' ? t('随手记下提示词、待办或灵感。\n不需要打开任何项目。', 'Save a prompt, a to-do, or a thought.\nNo project needed.') : t('选中聊天里的文字，点击收藏；\n也可以把鼠标移到消息上收藏整条。', 'Select text in a message and bookmark it, or hover to save the whole message.')));
       content.append(empty); return;
     }
     const list = element(document, 'div', 'items');
@@ -405,8 +411,8 @@ function mountPanel(win:Window,options:PanelOptions):PanelApi|null {
       meta.append(element(document, 'span', 'grow', dateLabel('updatedAt' in item ? item.updatedAt : item.createdAt, zh() ? 'zh-CN' : 'en')));
       const url = 'url' in item ? item.url : item.threadUrl;
       if (url && validLink(url)) {
-        const visit = button(document, t('打开原链接', 'Open original'), `${kind}-open`, 'arrow');
-        visit.onclick = () => send('open.link', { url }); meta.append(visit);
+        const visit = button(document, t('source' in item && item.source?'回到原消息':'打开原链接', 'Open original'), `${kind}-open`, 'arrow');
+        visit.onclick = () => {if('source' in item&&item.source&&options.source)void options.source(item.source).catch(error=>setError(error.message));else send('open.link', { url });}; meta.append(visit);
       }
       card.append(open, meta); list.append(card);
     }
@@ -467,7 +473,7 @@ function mountPanel(win:Window,options:PanelOptions):PanelApi|null {
       const payload: Record<string, unknown> = { title: editing.title, revision: editing.revision };
       if (editing.id) payload.id = editing.id;
       if (editing.kind === 'note') { payload.body = editing.body; if (url) payload.threadUrl = url; }
-      else { payload.url = url; payload.excerpt = editing.body; }
+      else { payload.url = url; payload.excerpt = editing.body;if(editing.source&&url===`codex://threads/${editing.source.threadId}`)payload.source=editing.source; }
       const savedText = JSON.stringify([editing.title, editing.body, editing.url]);
       send(editing.kind === 'note' ? 'note.save' : 'bookmark.save', payload, () => {
         if (draft === editing && JSON.stringify([editing.title, editing.body, editing.url]) === savedText) { draft = null; renderContent(); }
@@ -515,6 +521,7 @@ function mountPanel(win:Window,options:PanelOptions):PanelApi|null {
   positionDrawer();
   const clock = win.setInterval(renderQuota, 30_000);
   const api: PanelApi = {
+    setTranslation(text){translator.setText(text);},
     activate(scope,open,inherit){floating.activate(scope,inherit);setOpen(open,false,false);},
     show(next){if(next)view=next;renderNavigation();renderContent();setOpen(true,true);},
     receive(message): void {

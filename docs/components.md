@@ -14,3 +14,9 @@ Add a component by extending its typed persisted preference, rendering it under 
 The current alpha has built-in component modules, not an executable third-party plugin loader. A future public registry should define a restricted capabilities contract and lifecycle before loading outside code.
 
 For data acquisition, use documented APIs and separate providers from renderers. Retain unknown values and last-update information. For conversation links, use the official app's copied deep link. Do not invent message-level anchors or start parallel conversations to emulate existing context.
+
+## Personal tools and mobile adapter
+
+Alpha.14 introduces per-tool shadow panels and a separate appearance stylesheet. Personal views retain draft DOM nodes across task switches. Whole-message and selection bookmarks use validated native message/turn IDs; a versioned adapter reads the already-running desktop manager and its reveal controller. It does not create a replacement app-server for conversation execution.
+
+The optional mobile bridge exposes only list/read/send to the outbound relay. It never accepts method names, arbitrary scripts or shell commands from the server. Phone sends use the native follow-up coordinator; other host actions remain separately allowlisted. See [mobile protocol and limitations](mobile.md).

@@ -1,14 +1,15 @@
+import {validateAnchor,type MessageAnchor} from './shared/anchors.js';
 import { randomUUID } from 'node:crypto';
 import { mkdir, open, readFile, rename, rm } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
-import type { Bookmark, Note, Settings, StoredState, TranslationRecord } from './shared/types.js';
+import type { Bookmark, Note, Settings, StoredState, TranslationRecord, ToolRecord, Appearance } from './shared/types.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_STORE_BYTES = 2000000;
 const COMPONENTS = ['quota', 'notes', 'bookmarks', 'artwork', 'theme', 'motion', 'translation', 'workspaces'] as const;
-const MUTATIONS = ['note.save', 'note.delete', 'bookmark.save', 'bookmark.delete', 'settings.patch', 'translation.clear'] as const;
+const MUTATIONS = ['note.save', 'note.delete', 'bookmark.save', 'bookmark.delete', 'settings.patch', 'translation.clear', 'library.save', 'library.delete'] as const;
 type MutationAction = typeof MUTATIONS[number];
-type PreparedMutation = { action: MutationAction; revision: number; id?: string; title?: string; body?: string; threadUrl?: string; url?: string; excerpt?: string; settings?: Partial<Omit<Settings, 'enabled'>> & { enabled?: Partial<Settings['enabled']> } };
+type PreparedMutation = { action: MutationAction; revision: number; id?: string; title?: string; body?: string; threadUrl?: string; url?: string; excerpt?: string; source?:MessageAnchor; library?: Omit<ToolRecord,'id'|'createdAt'|'updatedAt'>; settings?: Partial<Omit<Settings, 'enabled'>> & { enabled?: Partial<Settings['enabled']> } };
 
 function record(value: unknown, label: string, allowed: readonly string[], required: readonly string[] = []): Record<string, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${label} must be an object`);
@@ -70,10 +71,25 @@ function date(value: unknown, label: string): string {
   return input;
 }
 
+function appearance(value:unknown):Appearance {
+  const row=record(value,'appearance',['font','size','lineHeight','opacity','wallpaper'],['font','size','lineHeight','opacity','wallpaper']);
+  if(!['harmony','system','yahei'].includes(String(row.font)))throw Error('Invalid font');
+  const number=(key:string,min:number,max:number)=>{const n=row[key];if(typeof n!=='number'||!Number.isFinite(n)||n<min||n>max)throw Error('Invalid appearance '+key);return n;};
+  return {font:row.font as Appearance['font'],size:number('size',13,22),lineHeight:number('lineHeight',1.4,2.2),opacity:number('opacity',70,100),wallpaper:number('wallpaper',0,100)};
+}
+function libraryRecord(row:Record<string,unknown>):Omit<ToolRecord,'id'|'createdAt'|'updatedAt'> {
+  if(!['snippet','decision','resource','learning','idea'].includes(String(row.kind))||!['active','superseded','done','pending'].includes(String(row.status)))throw Error('Invalid library record');
+  return {kind:row.kind as ToolRecord['kind'],status:row.status as ToolRecord['status'],title:string(row.title,'title',200),body:string(row.body,'body',60000),...(row.source!==undefined?{source:validateAnchor(row.source)}:{}),...(row.details!==undefined?{details:string(row.details,'details',60000)}:{})};
+}
+function validateLibrary(value:unknown,savedId:(value:unknown)=>string):ToolRecord[] {
+  if(!Array.isArray(value)||value.length>500)throw Error('Invalid library');
+  return value.map(v=>{const row=record(v,'library record',['id','kind','status','title','body','source','details','createdAt','updatedAt'],['id','kind','status','title','body','createdAt','updatedAt']);return {...libraryRecord(row),id:savedId(row.id),createdAt:date(row.createdAt,'createdAt'),updatedAt:date(row.updatedAt,'updatedAt')};});
+}
+
 function validateState(value: unknown): StoredState {
-  const state = record(value, 'state', ['version', 'revision', 'settings', 'notes', 'bookmarks', 'translations'], ['version', 'revision', 'settings', 'notes', 'bookmarks']);
+  const state = record(value, 'state', ['version', 'revision', 'settings', 'notes', 'bookmarks', 'translations', 'library'], ['version', 'revision', 'settings', 'notes', 'bookmarks']);
   if (state.version !== 1) throw new Error('Unsupported state version');
-  const settings = record(state.settings, 'settings', ['locale', 'enabled', 'panelPinned'], ['locale', 'enabled', 'panelPinned']);
+  const settings = record(state.settings, 'settings', ['locale', 'enabled', 'panelPinned', 'appearance'], ['locale', 'enabled', 'panelPinned']);
   const enabled = record(settings.enabled, 'enabled', COMPONENTS, ['quota', 'notes', 'bookmarks']);
   const ids = new Set<string>();
   function savedId(value: unknown): string {
@@ -94,8 +110,8 @@ function validateState(value: unknown): StoredState {
     };
   });
   const bookmarks: Bookmark[] = state.bookmarks.map(value => {
-    const bookmark = record(value, 'bookmark', ['id', 'title', 'url', 'excerpt', 'createdAt'], ['id', 'title', 'url', 'excerpt', 'createdAt']);
-    return { id: savedId(bookmark.id), title: string(bookmark.title, 'title', 200), url: validateLink(bookmark.url), excerpt: string(bookmark.excerpt, 'excerpt', 10000), createdAt: date(bookmark.createdAt, 'createdAt') };
+    const bookmark = record(value, 'bookmark', ['id', 'title', 'url', 'excerpt', 'source', 'createdAt'], ['id', 'title', 'url', 'excerpt', 'createdAt']);
+    return { id: savedId(bookmark.id), title: string(bookmark.title, 'title', 200), url: validateLink(bookmark.url), excerpt: string(bookmark.excerpt, 'excerpt', 10000), ...(bookmark.source!==undefined?{source:validateAnchor(bookmark.source)}:{}), createdAt: date(bookmark.createdAt, 'createdAt') };
   });
   const optional: Partial<Settings['enabled']> = {};
   let translations:TranslationRecord[]|undefined;
@@ -107,16 +123,17 @@ function validateState(value: unknown): StoredState {
     });
   }
   for(const key of ['artwork','theme','motion','translation','workspaces'] as const) if(Object.hasOwn(enabled,key))optional[key]=boolean(enabled[key],`enabled.${key}`);
-  return { version: 1, revision: revision(state.revision), settings: { locale: locale(settings.locale), panelPinned: boolean(settings.panelPinned, 'panelPinned'), enabled: { quota: boolean(enabled.quota, 'enabled.quota'), notes: boolean(enabled.notes, 'enabled.notes'), bookmarks: boolean(enabled.bookmarks, 'enabled.bookmarks'), ...optional } }, notes, bookmarks, ...(translations?{translations}:{}) };
+  return { version: 1, revision: revision(state.revision), settings: { locale: locale(settings.locale), panelPinned: boolean(settings.panelPinned, 'panelPinned'), ...(settings.appearance!==undefined?{appearance:appearance(settings.appearance)}:{}), enabled: { quota: boolean(enabled.quota, 'enabled.quota'), notes: boolean(enabled.notes, 'enabled.notes'), bookmarks: boolean(enabled.bookmarks, 'enabled.bookmarks'), ...optional } }, notes, bookmarks, ...(translations?{translations}:{}), ...(state.library!==undefined?{library:validateLibrary(state.library,savedId)}:{}) };
 }
 
 function prepareMutation(action: string, input: unknown): PreparedMutation {
   if (!MUTATIONS.includes(action as MutationAction)) throw new Error('Unknown storage action');
   const keys: Record<MutationAction, readonly string[]> = {
     'note.save': ['revision', 'id', 'title', 'body', 'threadUrl'], 'note.delete': ['revision', 'id'],
-    'bookmark.save': ['revision', 'id', 'title', 'url', 'excerpt'], 'bookmark.delete': ['revision', 'id'],
-    'settings.patch': ['revision', 'enabled', 'locale', 'panelPinned'],
+    'bookmark.save': ['revision', 'id', 'title', 'url', 'excerpt', 'source'], 'bookmark.delete': ['revision', 'id'],
+    'settings.patch': ['revision', 'enabled', 'locale', 'panelPinned', 'appearance'],
     'translation.clear':['revision'],
+    'library.save':['revision','id','kind','title','body','status','source','details'], 'library.delete':['revision','id'],
   };
   const typedAction = action as MutationAction;
   const payload = record(input, 'payload', keys[typedAction], ['revision']);
@@ -126,10 +143,13 @@ function prepareMutation(action: string, input: unknown): PreparedMutation {
   if (action === 'note.save') {
     prepared.title = string(payload.title, 'title', 200); prepared.body = string(payload.body, 'body', 100000);
     if (Object.hasOwn(payload, 'threadUrl')) prepared.threadUrl = validateLink(payload.threadUrl);
+  } else if (action === 'library.save') {
+    prepared.library=libraryRecord(payload);
   } else if (action === 'bookmark.save') {
-    prepared.title = string(payload.title, 'title', 200); prepared.url = validateLink(payload.url); prepared.excerpt = string(payload.excerpt, 'excerpt', 10000);
+    prepared.title = string(payload.title, 'title', 200); prepared.url = validateLink(payload.url); prepared.excerpt = string(payload.excerpt, 'excerpt', 10000);if(payload.source!==undefined)prepared.source=validateAnchor(payload.source);
   } else if (action === 'settings.patch') {
     prepared.settings = {};
+    if(payload.appearance!==undefined)prepared.settings.appearance=appearance(payload.appearance);
     if (Object.hasOwn(payload, 'locale')) prepared.settings.locale = locale(payload.locale);
     if (Object.hasOwn(payload, 'panelPinned')) prepared.settings.panelPinned = boolean(payload.panelPinned, 'panelPinned');
     if (Object.hasOwn(payload, 'enabled')) {
@@ -143,6 +163,11 @@ function prepareMutation(action: string, input: unknown): PreparedMutation {
 function applyMutation(state: StoredState, change: PreparedMutation): void {
   if(change.action==='translation.clear'){state.translations=[];return;}
   const now = new Date().toISOString();
+  if(change.action.startsWith('library.')) {
+    const rows=state.library??=[], index=change.id?rows.findIndex(r=>r.id===change.id):-1;
+    if(change.id&&index<0)throw Error('Record not found');
+    if(change.action==='library.delete')rows.splice(index,1);else {if(index<0&&rows.length>=500)throw Error('Library limit reached');const item:ToolRecord={...change.library!,id:change.id??randomUUID(),createdAt:rows[index]?.createdAt??now,updatedAt:now};if(index<0)rows.push(item);else rows[index]=item;}state.library=rows;return;
+  }
   if (change.action === 'settings.patch') {
     const patch = change.settings!;
     state.settings = { ...state.settings, ...patch, enabled: { ...state.settings.enabled, ...patch.enabled } };
@@ -159,7 +184,7 @@ function applyMutation(state: StoredState, change: PreparedMutation): void {
     const note: Note = { id, title: change.title!, body: change.body!, createdAt, updatedAt: now, ...(change.threadUrl !== undefined ? { threadUrl: change.threadUrl } : {}) };
     if (index < 0) state.notes.push(note); else state.notes[index] = note;
   } else {
-    const bookmark: Bookmark = { id, title: change.title!, url: change.url!, excerpt: change.excerpt!, createdAt };
+    const bookmark: Bookmark = { id, title: change.title!, url: change.url!, excerpt: change.excerpt!, ...(change.source?{source:change.source}:{}), createdAt };
     if (index < 0) state.bookmarks.push(bookmark); else state.bookmarks[index] = bookmark;
   }
 }
@@ -184,6 +209,19 @@ export class StateStore {
   }
 
   get snapshot(): StoredState { return structuredClone(this.state); }
+
+  /** Trusted relay import uses its durable message UUID; ordinary UI saves cannot upsert unknown IDs. */
+  async importIdea(id:string,input:{title:string;body:string;details:string}):Promise<void> {
+    const saved=libraryRecord({kind:'idea',title:input.title,body:input.body,details:input.details,status:'pending'});
+    const safeId=identifier(id);
+    const operation=this.pending.then(async()=>{
+      if(this.state.library?.some(r=>r.id===safeId))return;
+      const next=structuredClone(this.state),now=new Date().toISOString();
+      next.library=[...next.library??[],{...saved,id:safeId,createdAt:now,updatedAt:now}];next.revision++;
+      const checked=validateState(next);await this.write(checked);this.state=checked;
+    });
+    this.pending=operation.then(()=>undefined,()=>undefined);return operation;
+  }
 
   async appendTranslation(input:Omit<TranslationRecord,'id'|'createdAt'>):Promise<void>{
     const saved:TranslationRecord={id:randomUUID(),createdAt:new Date().toISOString(),text:string(input.text,'text',12000),translation:string(input.translation,'translation',60000),source:string(input.source,'source',16),target:string(input.target,'target',16),model:string(input.model,'model',100)};

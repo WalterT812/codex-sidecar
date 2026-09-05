@@ -10,3 +10,7 @@ test-results/
 runtime.json
 state.json
 state.json.*
+
+mobile.json
+mobile-journal.json
+mobile-inbox/

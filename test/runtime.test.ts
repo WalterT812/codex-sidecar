@@ -46,7 +46,7 @@ async function fixture(t: test.TestContext) {
     discoverCli: async () => { throw new Error('No account helper in lifecycle tests.'); },
     targets: async () => { if (targetFailure) throw new Error('Transient CDP failure'); return [page]; },
     connect: async () => { const connection = new FakePage(); connections.push(connection); return connection as unknown as DesktopConnection; },
-    pollMs: 20, startupMs: 150, startupPollMs: 10, stopPollMs: 10,
+    pollMs: 20, startupMs: 2000, startupPollMs: 10, stopPollMs: 10,
   };
   const lockPath = join(directory, 'companion.lock');
   t.after(async () => {
@@ -166,7 +166,7 @@ for (const phase of ['choosePort', 'renderer', 'discoverCli'] as const) {
     if (phase === 'renderer') app.services.renderer = async () => { await stopInPhase(); return 'fixture'; };
     if (phase === 'discoverCli') app.services.discoverCli = async () => { await stopInPhase(); return 'C:\\fixture\\codex.exe'; };
     const starting = startCompanion({}, app.services);
-    await entry;
+    await Promise.race([entry, delay(5000).then(()=>{finish();throw Error('Startup phase was not reached');})]);
     await requestStop(app.directory); await delay(35);
     assert.equal(await exists(app.lockPath), true);
     finish(); await starting;

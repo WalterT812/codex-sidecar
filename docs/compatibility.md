@@ -1,6 +1,18 @@
 # Compatibility and acceptance
 
-Status checked on **5 September 2026**. Version **0.1.0-alpha.3** is an early Windows companion, not an official extension API.
+Status checked on **5 September 2026**. Version **0.1.0-alpha.14** is an early Windows companion, not an official extension API.
+
+## Current acceptance — alpha.14
+
+- 142 automated tests, TypeScript and build passed. New tests cover source identity, personal editor draft isolation, learning progress, mobile authentication/deduplication, unknown send recovery and safe Markdown rendering. Lifecycle fixtures now tolerate loaded Windows runners and have bounded gate waits.
+- Two real native desktop windows show alpha.14. Dedicated focus exit preserves original panel state and never binds Escape. Ctrl+Alt+D native toggle dictation registration was accepted; no recording was made during QA.
+- Exact navigation to a previously unloaded historical message and to a message in another existing task both passed, then returned to the starting task. Search hydration uses the official manager's complete-history fallback for a verified legacy cursor failure.
+- The appearance slider produced a measured 18px font on both native replies and composer, then restored the saved value. Personal editor DOM nodes survive task switches. Learning questions and student answers can be persisted; a real Sol request returned the required question/answer/evidence structure.
+- The isolated HTTPS mobile service returns 401 for anonymous chat reads and leaves the existing site responding normally. A fresh 390×844 browser paired successfully, listed 44 real tasks and read 91 source messages; drafts remained isolated and were restored on return. No page errors or horizontal page overflow occurred. Pairing sessions used during QA were logged out.
+- Mobile dispatch has protocol and injected-host coverage. A physical iPhone, microphone permissions and a real phone-triggered model turn remain unverified; these are not claimed by the browser test. The mobile UI does not render every native artifact or approval flow.
+- Official client binaries were not modified or restarted. The native manager adapter is tied to observed Windows package 26.901.2854.0; future client releases may require an update.
+
+The sections below retain earlier acceptance history; their historical test counts and limitations do not replace the current entry.
 
 ## Verified locally
 

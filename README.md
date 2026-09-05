@@ -14,6 +14,10 @@ Personal themes and components for the **official Codex desktop app**: a whole-w
 - Workspace views over native sections, using their original new-chat actions.
 - Sol translation with medium reasoning, using Codex quota and local history for up to 50 translations; no new saved chat.
 - Local notes and conversation bookmarks, synchronized across attached windows with revision conflict protection.
+- Exact message bookmarks, selection actions and a question directory, including navigation to unloaded history through the native desktop manager.
+- Independent tools for snippets, history search, resume cards, actual task status, confirmed decisions, material-based practice, resources and ideas. Sol runs only on explicit requests.
+- Appearance preview, a dedicated focus exit button, and native toggle dictation registration.
+- Optional paired mobile PWA with cached list/history, text/image sends into the original desktop task, and text/image/audio ideas. See [mobile setup and limits](docs/mobile.md).
 - Component visibility settings and a complete detach action.
 - Original bright abstract cover art, with an independent visibility toggle; it hides while editing.
 - Independent browser preview with clearly labeled sample quota and separate demo data.
@@ -69,7 +73,7 @@ Upgrading from alpha.1: stop the old companion before switching, keep its old `%
 
 Bookmark destinations are restricted to HTTPS and existing `codex://threads/<UUID>` links. Copy a conversation deep link from the official app (Windows default: Ctrl+Alt+L). Sidecar does not manage or rewrite native conversation databases.
 
-Normal use does not start a web server. The CDP endpoint is local-only, owned by the verified desktop executable. It is a powerful debugging interface: only run companion code you trust. Browser preview starts its own local demo server, with sample data and guarded mutation endpoints.
+Desktop-only use does not start a web server. The optional mobile mode contacts a separately configured private server over outbound HTTPS; that server caches selected chat history and queues explicit phone submissions. The CDP endpoint is local-only, owned by the verified desktop executable. It is a powerful debugging interface: only run companion code you trust. Browser preview starts its own local demo server, with sample data and guarded mutation endpoints.
 
 ## Development
 

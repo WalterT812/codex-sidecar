@@ -1,10 +1,11 @@
-import { readFile, unlink } from 'node:fs/promises';
-import { join } from 'node:path';
+import { readFile, unlink, stat } from 'node:fs/promises';
+import { join, win32 } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'node:net';
 import { setTimeout as delay } from 'node:timers/promises';
+import {startMobileRelay} from './mobile/relay.js';
 import { AccountClient } from './account/client.js';
 import { discoverCodexCli, discoverWindowsApp, listDesktopProcesses, launchDesktop, verifyPortOwner, getVerifiedDesktopOwner, type AppInstallation } from './platform/windows.js';
 import { CdpConnection, isDesktopTarget, listTargets, validateSocketUrl, type PageTarget } from './cdp.js';
@@ -18,7 +19,7 @@ import {translateWithCodex} from './translation.js';
 import type { HostMessage, QuotaSnapshot } from './shared/types.js';
 
 const exec = promisify(execFile);
-export const VERSION = '0.1.0-alpha.10';
+export const VERSION = '0.1.0-alpha.14';
 export async function availablePort() {
   const server = createServer();
   await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
@@ -92,6 +93,7 @@ export async function startCompanion(options: { port?: number; attachOnly?: bool
   const attempts = new Map<string, number>();
   const work = new WorkGroup();
   const intervals: ReturnType<typeof setInterval>[] = [];
+  let mobile:Awaited<ReturnType<typeof startMobileRelay>>=null;
   let client: AccountClient | undefined;
   let cliPath: string | undefined;
   let stopping = false;
@@ -119,6 +121,7 @@ export async function startCompanion(options: { port?: number; attachOnly?: bool
   async function finishShutdown(reason: string) {
     console.log(`Stopping Codex Sidecar: ${reason}`);
     await instance?.close(reason);
+    await mobile?.stop();
     // Cancel owned account requests before draining actions that may await them.
     await client?.close();
     await work.stop();
@@ -250,9 +253,16 @@ export async function startCompanion(options: { port?: number; attachOnly?: bool
               openLink: async url => { await exec('explorer.exe', [url], { windowsHide: true, timeout: 5000 }); },
               detach: async () => { setTimeout(onSignal, 80); },
               translate: translateWithCodex,
+              mobile:async action=>mobile?await mobile[action]():{configured:false},
+              revealResource:async id=>{
+                const record=store.snapshot.library?.find(r=>r.id===id),path=record?.details;
+                if(!path||!win32.isAbsolute(path)||!/^([a-z]:\\)/i.test(path)||/[\u0000-\u001f]/.test(path))throw Error('请保存完整的本机文件路径');
+                await stat(path);
+                await exec('explorer.exe', ['/select,',path],{windowsHide:true,timeout:5000});
+              },
             });
-            if (connection.connected) await send(page, result);
             await broadcast();
+            if (connection.connected) await send(page, result);
             });
           } catch { /* Disconnected pages receive a fresh snapshot if they reconnect. */ }
         });
@@ -314,6 +324,19 @@ export async function startCompanion(options: { port?: number; attachOnly?: bool
     }
     if (stopping) { await shutdown(); return; }
     if (!pages.size) throw new Error('No supported Codex window accepted the components. Check Sidecar compatibility; the official app was left unchanged.');
+    mobile=await startMobileRelay(directory,{
+      store,broadcast,
+      call:async(action,value)=>{
+        if(stopping||!await originalDesktopIsAlive())throw Error('Desktop disconnected');
+        let selected:MountedPage|undefined;
+        for(const page of pages.values())try{
+          if(await page.connection.evaluate("Boolean(document.querySelector('[data-above-composer-conversation-id]') && window.__CODEX_SIDECAR__?.mobile)",page.contextId)){selected=page;break;}
+        }catch{}
+        if(!selected)throw Error('No ready desktop window');
+        const result:any=await selected.connection.evaluate(`(async()=>{try{return {ok:true,data:await window.__CODEX_SIDECAR__.mobile(${JSON.stringify(action)},${JSON.stringify(value??{})})}}catch{return {ok:false}}})()`,selected.contextId);
+        if(!result?.ok)throw Error('Native mobile action failed');return result.data;
+      },
+    }).catch(()=>{console.warn('Private mobile relay unavailable; desktop tools remain active.');return null;});
     resolveReady();
     console.log('SIDECAR_READY=1');
     void refreshQuota();

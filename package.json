@@ -1,6 +1,6 @@
 {
   "name": "codex-sidecar",
-  "version": "0.1.0-alpha.10",
+  "version": "0.1.0-alpha.14",
   "private": true,
   "description": "Personal components for the official Codex desktop app, without patching its installation.",
   "type": "module",
@@ -14,7 +14,7 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "node --import tsx --test test/*.test.ts",
+    "test": "node --import tsx --test --test-timeout=30000 test/*.test.ts",
     "check": "npm run typecheck && npm test && npm run build",
     "start": "node dist/cli.js start",
     "doctor": "node dist/cli.js doctor",

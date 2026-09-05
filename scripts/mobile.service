@@ -1,0 +1,24 @@
+[Unit]
+Description=Codex Sidecar private mobile relay
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=codex
+Group=codex
+WorkingDirectory=/home/codex/platform/codex-sidecar-mobile
+Environment=SIDECAR_MOBILE_CONFIG=/home/codex/platform/codex-sidecar-mobile/config.json
+ExecStart=/usr/bin/node /home/codex/platform/codex-sidecar-mobile/current/server.js
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/home/codex/platform/codex-sidecar-mobile/data
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+MemoryMax=512M
+
+[Install]
+WantedBy=multi-user.target

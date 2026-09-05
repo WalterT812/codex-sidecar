@@ -45,5 +45,5 @@ export function createTranslator(win:Window,cloud:(text:string,source:string,tar
    entry.onclick=()=>{if(pending)return;input.value=item.text;output.value=item.translation;copy.disabled=false;source.value=item.source;target.value=item.target;progress.textContent=text('已打开本机历史记录','Opened local translation history');input.scrollIntoView?.({block:'nearest'});};history.append(entry);
   }
  }
- language(true);setHistory([]);return{element:form,language,setHistory,destroy(){disposed=true;form.remove();}};
+ language(true);setHistory([]);return{element:form,language,setHistory,setText(text:string){if(pending)return;input.value=text.slice(0,12000);source.value=/[\u4e00-\u9fff]/.test(text)?'zh':'en';target.value=source.value==='zh'?'en':'zh';input.focus();},destroy(){disposed=true;form.remove();}};
 }
