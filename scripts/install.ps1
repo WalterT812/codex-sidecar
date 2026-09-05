@@ -17,7 +17,11 @@ if (Test-Path -LiteralPath $targetRoot) {
 }
 New-Item -ItemType Directory -Path (Join-Path $targetRoot 'dist') -Force | Out-Null
 foreach ($name in @('cli.js','renderer.js')) { Copy-Item -LiteralPath (Join-Path $sourceRoot "dist\$name") -Destination (Join-Path $targetRoot "dist\$name") -Force }
-foreach ($name in @('LICENSE','THIRD_PARTY_NOTICES.md','README.zh-CN.md')) { Copy-Item -LiteralPath (Join-Path $sourceRoot $name) -Destination (Join-Path $targetRoot $name) -Force }
+foreach ($name in @('LICENSE','THIRD_PARTY_NOTICES.md','README.md','README.zh-CN.md','CONTRIBUTING.md','docs/compatibility.md','docs/components.md','docs/superpowers/specs/2026-09-05-sidecar-design.md')) {
+    $documentationTarget = Join-Path $targetRoot $name
+    New-Item -ItemType Directory -Path (Split-Path -Parent $documentationTarget) -Force | Out-Null
+    Copy-Item -LiteralPath (Join-Path $sourceRoot $name) -Destination $documentationTarget -Force
+}
 $launcherText = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'Launch.ps1') -Raw -Encoding UTF8
 [IO.File]::WriteAllText((Join-Path $targetRoot 'Launch.ps1'), $launcherText, (New-Object Text.UTF8Encoding($true)))
 $package = Get-Content -LiteralPath (Join-Path $sourceRoot 'package.json') -Raw | ConvertFrom-Json
