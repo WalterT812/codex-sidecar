@@ -149,7 +149,9 @@ test('excess and half-open sockets cannot block bounded server shutdown', async 
       socket.on('error', () => {}); sockets.push(socket);
       await new Promise<void>((resolve, reject) => { socket.once('connect', resolve); socket.once('error', reject); });
     }
-    const excess = await rawRequest(endpoint(directory, owner), '\n');
+    // The server rejects this connection before reading a hello. Sending bytes
+    // after that close can legitimately yield ECONNRESET on Unix sockets.
+    const excess = await rawRequest(endpoint(directory, owner), '');
     assert.match(JSON.parse(excess).error, /busy/i);
     const before = Date.now(); await server.close('Closing');
     assert.ok(Date.now() - before < 1000);
