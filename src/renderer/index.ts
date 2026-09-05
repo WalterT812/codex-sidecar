@@ -72,11 +72,12 @@ export function mountSidecar(win:Window):SidecarApi|null{
 function mountPanel(win:Window,options:PanelOptions):PanelApi|null {
   const rootId=options.tool?ROOT_ID+'-'+options.tool:ROOT_ID;
   const document = win.document;
-  const anchor = nativeAnchor(win);
-  if (!anchor || !document.body) {
+  const initialAnchor = nativeAnchor(win);
+  if (!initialAnchor || !document.body) {
     win.__CODEX_SIDECAR_DIAGNOSTIC__ = 'Sidecar did not mount: a supported app shell and visible native header were not found.';
     return null;
   }
+  let anchor: HTMLElement = initialAnchor;
   const leftover = document.getElementById(rootId);
   if (leftover) {
     win.__CODEX_SIDECAR_DIAGNOSTIC__ = 'Sidecar did not mount: its root ID is occupied by an unknown element.';
@@ -233,7 +234,15 @@ function mountPanel(win:Window,options:PanelOptions):PanelApi|null {
 
   function positionChip(): void {
     if (destroyed || !anchor) return;
-    if (!anchor.isConnected) { api.destroy(); win.__CODEX_SIDECAR_DIAGNOSTIC__ = 'Sidecar detached because its native header was removed.'; return; }
+    if (!anchor.isConnected) {
+      const replacement = nativeAnchor(win);
+      // React may replace the header during navigation. Keep the tool windows
+      // and their unsaved drafts alive while waiting for a supported header.
+      if (!replacement) { chip.style.visibility = 'hidden'; return; }
+      observer?.unobserve(anchor);
+      anchor = replacement;
+      observer?.observe(anchor);
+    }
     const rect = anchor.getBoundingClientRect();
     if (demo) { chip.style.top = '12px'; chip.style.right = '164px'; chip.style.visibility = win.innerWidth < 650 ? 'hidden' : 'visible'; return; }
     // Only use a measurable free gap in the native header; never move native controls.
@@ -516,7 +525,7 @@ function mountPanel(win:Window,options:PanelOptions):PanelApi|null {
   observer?.observe(anchor);
   const MutationObserverClass=(win as unknown as {MutationObserver?:typeof MutationObserver}).MutationObserver;
   let placementTimer:number|undefined;
-  const placementObserver=MutationObserverClass?new MutationObserverClass(()=>{if(placementTimer===undefined)placementTimer=later(()=>{placementTimer=undefined;positionDrawer();},80);}):null;
+  const placementObserver=MutationObserverClass?new MutationObserverClass(()=>{if(placementTimer===undefined)placementTimer=later(()=>{placementTimer=undefined;positionChip();positionDrawer();},80);}):null;
   const nativeRoot=document.getElementById('root');if(nativeRoot)placementObserver?.observe(nativeRoot,{childList:true,subtree:true,attributes:true,attributeFilter:['style','data-pip-obstacle']});
   positionDrawer();
   const clock = win.setInterval(renderQuota, 30_000);

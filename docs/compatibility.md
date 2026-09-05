@@ -1,8 +1,16 @@
 # Compatibility and acceptance
 
-Status checked on **5 September 2026**. Version **0.1.0-alpha.15** is an early Windows companion, not an official extension API.
+Status checked on **5 September 2026**. Version **0.1.0-alpha.16** is an early Windows companion, not an official extension API.
 
-## Current acceptance — alpha.15
+## Current acceptance — alpha.16
+
+- A live failure showed a surviving bridge API after the original header was removed: the theme and primary panel were gone, but runtime considered the page healthy. Header replacement now rebinds the quota chip while retaining tool windows and unsaved editor nodes. During the brief gap, the quota chip is hidden.
+- Runtime health checks require the mounted component root as well as the API. Failed mounts use bounded backoff (up to 60 seconds) instead of a permanent three-attempt cutoff, and successful mounts reset the failure history.
+- All 147 automated tests, TypeScript and build passed, including header replacement with an unsaved draft, five reloads of one window, four consecutive mount failures and a stale API with a missing root.
+- Installed alpha.16 was inspected in the live desktop: theme, primary root, personal tools and quota chip were restored. Built and installed bundle hashes match; the desktop process identity and saved state hash are unchanged. Only the companion was restarted. The other 720x84 auxiliary window has no supported shell and is left untouched.
+- Walter confirmed real iPhone text messaging into the original task and confirmed the 16px input fix resolved focus zoom. Photo/audio and offline reconnect still need physical-device acceptance.
+
+## Previous acceptance — alpha.15
 
 Alpha.15 also checks durable stop requests between startup phases and drains delayed mobile initialization before releasing ownership.
 

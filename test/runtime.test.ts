@@ -11,14 +11,15 @@ const page = { id: 'main', type: 'page', url: 'app://-/index.html', title: 'Code
 class FakePage extends EventEmitter {
   connected = true;
   present = false;
+  rootPresent = false;
   async request<T = any>(method: string): Promise<T> {
     if (method === 'Runtime.enable') this.emit('Runtime.executionContextCreated', { context: { id: 7, auxData: { isDefault: true, frameId: 'main-frame' } } });
     return (method === 'Page.getFrameTree' ? { frameTree: { frame: { id: 'main-frame', url: page.url } } } : {}) as T;
   }
   async evaluate<T = unknown>(expression: string): Promise<T> {
-    if (expression.startsWith('window.__CODEX_SIDECAR_BOOT__=')) this.present = true;
+    if (expression.startsWith('window.__CODEX_SIDECAR_BOOT__=')) this.present = this.rootPresent = true;
     if (expression === 'window.__CODEX_SIDECAR__?.destroy()') this.present = false;
-    return (expression.startsWith('Boolean(') ? this.present : undefined) as T;
+    return (expression.startsWith('Boolean(') ? this.present && (!expression.includes('getElementById') || this.rootPresent) : undefined) as T;
   }
   close() { if (this.connected) { this.connected = false; this.emit('disconnected'); } }
 }
@@ -81,6 +82,40 @@ test('a temporary CDP listing failure keeps the verified original session alive'
   app.breakTargets();
   await delay(90);
   assert.equal(await exists(app.lockPath), true);
+});
+
+test('the same window can reload more than three times and still recover', async t => {
+  const app = await fixture(t);
+  await startCompanion({}, app.services);
+  for (let reload = 0; reload < 5; reload++) {
+    const previous = app.connections.at(-1)!;
+    previous.present = false;
+    await until(async () => app.connections.at(-1) !== previous && app.connections.at(-1)!.present);
+    assert.equal(previous.connected, false);
+  }
+});
+
+test('a temporarily unsupported window recovers after more than three failed mounts', async t => {
+  const app = await fixture(t);
+  let failures = 0;
+  app.services.connect = async () => {
+    if (failures++ < 4) throw Error('Window is still loading');
+    const connection = new FakePage(); app.connections.push(connection);
+    return connection as unknown as DesktopConnection;
+  };
+  await startCompanion({}, app.services);
+  assert.equal(failures, 5);
+  assert.equal(app.connections.at(-1)!.present, true);
+});
+
+test('a surviving API object cannot hide a removed component root', async t => {
+  const app = await fixture(t);
+  await startCompanion({}, app.services);
+  const previous = app.connections.at(-1)!;
+  previous.rootPresent = false;
+  assert.equal(previous.present, true);
+  await until(async () => app.connections.at(-1) !== previous && app.connections.at(-1)!.rootPresent);
+  assert.equal(previous.connected, false);
 });
 
 test('a duplicate during startup waits for the same owner and never launches twice', async t => {

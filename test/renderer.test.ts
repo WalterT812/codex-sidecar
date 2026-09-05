@@ -114,6 +114,32 @@ test('production accepts the source-backed native shell even when header actions
   } finally { app.close(); }
 });
 
+test('native header replacement preserves the theme, open editor and unsaved draft', async () => {
+  const app = setup({ demo: false, native: true });
+  try {
+    const doc = app.win.document;
+    const host = doc.getElementById('codex-sidecar-root');
+    app.query<HTMLButtonElement>('new-note').click();
+    const body = app.input('editor-body', 'Keep this unsaved thought');
+    const oldHeader = doc.querySelector('header')!;
+    oldHeader.remove();
+    app.win.dispatchEvent(new app.dom.window.Event('resize'));
+    assert.equal(doc.getElementById('codex-sidecar-root'), host);
+    assert.equal(doc.documentElement.dataset.codexSidecarTheme, 'pearl');
+    assert.equal(app.query('quota-chip').style.visibility, 'hidden');
+    const replacement = oldHeader.cloneNode() as HTMLElement;
+    replacement.getBoundingClientRect = () => new app.dom.window.DOMRect(0, 36, 1024, 48);
+    doc.querySelector('main')!.prepend(replacement);
+    await new Promise(resolve => setTimeout(resolve, 150));
+    assert.equal(app.win.__CODEX_SIDECAR__, app.api);
+    assert.equal(doc.getElementById('codex-sidecar-root'), host);
+    assert.equal(app.query('editor-body'), body);
+    assert.equal(body.value, 'Keep this unsaved thought');
+    assert.equal(app.query('quota-chip').style.visibility, 'visible');
+    assert.equal(app.query('quota-chip').style.top, '45.5px');
+  } finally { app.close(); }
+});
+
 test('production rejects generic, partial, and hidden native-looking headers', () => {
   for (const change of ['main-marker', 'header-marker', 'hidden'] as const) {
     const app = setup({ demo: false, native: true });

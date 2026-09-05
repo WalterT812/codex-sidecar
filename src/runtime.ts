@@ -19,7 +19,8 @@ import {translateWithCodex} from './translation.js';
 import type { HostMessage, QuotaSnapshot } from './shared/types.js';
 
 const exec = promisify(execFile);
-export const VERSION = '0.1.0-alpha.15';
+export const VERSION = '0.1.0-alpha.16';
+const PAGE_HEALTH = "Boolean(window.__CODEX_SIDECAR__ && document.getElementById('codex-sidecar-root')?.isConnected)";
 export async function availablePort() {
   const server = createServer();
   await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
@@ -91,7 +92,7 @@ export async function startCompanion(options: { port?: number; attachOnly?: bool
   if (!lock) throw new Error('Could not establish Sidecar ownership.');
   const ownedLock = lock;
   const pages = new Map<string, MountedPage>();
-  const attempts = new Map<string, number>();
+  const retries = new Map<string, { failures: number; after: number }>();
   const work = new WorkGroup();
   const intervals: ReturnType<typeof setInterval>[] = [];
   let mobile:Awaited<ReturnType<typeof startMobileRelay>>=null;
@@ -281,7 +282,7 @@ export async function startCompanion(options: { port?: number; attachOnly?: bool
         });
         await connection.evaluate(`window.__CODEX_SIDECAR_BOOT__=${JSON.stringify({ version: VERSION, demo: false })};\n${renderer}`, context.id);
         ensureRunning();
-        const installed = await connection.evaluate('Boolean(window.__CODEX_SIDECAR__)', context.id);
+        const installed = await connection.evaluate(PAGE_HEALTH, context.id);
         ensureRunning();
         if (!installed) throw new Error('This desktop layout is not supported. Native UI was preserved.');
         pages.set(target.id, page);
@@ -304,18 +305,24 @@ export async function startCompanion(options: { port?: number; attachOnly?: bool
       try {
         if (!await originalDesktopIsAlive()) return;
         const targets = (await services.targets(port)).filter(isDesktopTarget);
+        for (const id of retries.keys()) if (!targets.some(target => target.id === id)) retries.delete(id);
         for (const [id, page] of pages) {
           if (!targets.some(target => target.id === id)) { page.connection.close(); pages.delete(id); continue; }
           try {
-            const present = await page.connection.evaluate('Boolean(window.__CODEX_SIDECAR__)', page.contextId);
+            const present = await page.connection.evaluate(PAGE_HEALTH, page.contextId);
             if (!present) { page.connection.close(); pages.delete(id); }
           }
           catch { page.connection.close(); pages.delete(id); }
         }
         for (const target of targets) {
-          if (pages.has(target.id) || (attempts.get(target.id) ?? 0) >= 3 || stopping) continue;
-          attempts.set(target.id, (attempts.get(target.id) ?? 0) + 1);
-          try { await mount(target); } catch (error) { console.warn((error as Error).message); }
+          if (pages.has(target.id) || Date.now() < (retries.get(target.id)?.after ?? 0) || stopping) continue;
+          try { await mount(target); retries.delete(target.id); }
+          catch (error) {
+            const failures = (retries.get(target.id)?.failures ?? 0) + 1;
+            const backoff = Math.min(60_000, services.pollMs * 2 ** Math.min(failures - 1, 4));
+            retries.set(target.id, { failures, after: Date.now() + backoff });
+            console.warn((error as Error).message);
+          }
         }
       } catch { /* A failed probe is not proof of exit. Retry; never restart Codex here. */ }
       finally { pollBusy = false; }
@@ -324,7 +331,7 @@ export async function startCompanion(options: { port?: number; attachOnly?: bool
       if (stopping) throw new Error('Codex Sidecar is stopping.');
       if (requestedPort !== undefined && requestedPort !== port) throw new Error('Sidecar is already connected on another debugging port.');
       if (!await originalDesktopIsAlive()) throw new Error('The previous Codex desktop has exited. Open Sidecar again after it finishes closing.');
-      const health = await Promise.allSettled([...pages.values()].map(page => page.connection.evaluate('Boolean(window.__CODEX_SIDECAR__)', page.contextId)));
+      const health = await Promise.allSettled([...pages.values()].map(page => page.connection.evaluate(PAGE_HEALTH, page.contextId)));
       if (stopping || !health.some(result => result.status === 'fulfilled' && result.value === true)) throw new Error('The existing Sidecar has no healthy attached window. Wait for the Codex window to finish opening, then try again.');
       return { port, version: VERSION };
     });
