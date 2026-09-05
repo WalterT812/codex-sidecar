@@ -109,13 +109,36 @@ test('owner disappearance aborts a pending join and close does not wait on an un
   assert.ok(Date.now() - before < 1000);
 });
 
-test('closing the rendezvous informs pending callers and is idempotent', async t => {
+test('an authenticated stopping reply waits for actual lock release before permitting a retry', async t => {
   const { directory, owner, lock } = await fixture(t);
   let started!: () => void; const called = new Promise<void>(resolve => { started = resolve; });
   const server = await startInstanceServer(owner, async () => { started(); return await new Promise<never>(() => {}); });
-  const pending = assert.rejects(waitForInstance(directory, owner, undefined, 2000), /Desktop ended/);
-  await called; await server.close('Desktop ended'); await pending;
-  await server.close(); await lock.release();
+  let settled = false;
+  const waiter = waitForInstance(directory, owner, undefined, 2000);
+  void waiter.then(() => { settled = true; }, () => { settled = true; });
+  const pending = assert.rejects(waiter, InstanceOwnerChangedError); void pending.catch(() => {});
+  try {
+    await called; await server.close('Desktop ended');
+    await delay(150);
+    assert.equal(settled, false, 'closing the pipe must not authorize ownership transfer');
+    assert.equal(JSON.parse(await readFile(join(directory, 'companion.lock'), 'utf8')).token, owner.token);
+    await lock.release(); await pending;
+  } finally { await server.close(); await lock.release(); }
+});
+
+test('stopping without releasing the lock times out with its reason and preserves ownership', async t => {
+  const { directory, owner, lock } = await fixture(t);
+  let started!: () => void; const called = new Promise<void>(resolve => { started = resolve; });
+  const server = await startInstanceServer(owner, async () => { started(); return await new Promise<never>(() => {}); });
+  const pending = assert.rejects(waitForInstance(directory, owner, undefined, 250), error => {
+    assert.ok(!(error instanceof InstanceOwnerChangedError));
+    assert.match((error as Error).message, /Desktop ended/);
+    assert.match((error as Error).message, /timeout|timed out/i); return true;
+  }); void pending.catch(() => {});
+  try {
+    await called; await server.close('Desktop ended'); await pending;
+    assert.equal(JSON.parse(await readFile(join(directory, 'companion.lock'), 'utf8')).token, owner.token);
+  } finally { await server.close(); await lock.release(); }
 });
 
 test('malformed, oversized, and wrong-owner protocol requests never reach the handler', async t => {

@@ -8,7 +8,7 @@ Status checked on **5 September 2026**. Version **0.1.0-alpha.2** is an early Wi
 | --- | --- |
 | Windows app discovery | Microsoft Store package `OpenAI.Codex` 26.901.2854.0; GUI identified as `ChatGPT.exe`, distinct from the CLI |
 | Account transport | Official Codex CLI 0.153.0; live stdio `account/rateLimits/read` returned three quota windows; helper exited cleanly |
-| Runtime | Node.js 24.16.0; all 96 automated tests, type checking, and bundled build passed, including duplicate-start and coordinator lifecycle regressions |
+| Runtime | Node.js 24.16.0; all 98 automated tests, type checking, and bundled build passed, including duplicate-start, immediate-reopen, and coordinator lifecycle regressions |
 | Browser components | Full-size and 430 × 680 preview; notes, bookmarks, artwork toggle, cross-window synchronization and conflict indication |
 | Desktop anchor inspection | Read-only packaged source confirms `#root`, `main[data-app-shell-main-surface="default"]`, and `header[data-pip-obstacle="app-shell-header"][data-app-shell-header-layout]`; no proprietary source is redistributed |
 | Isolation | Separate demo data, literal text rendering, duplicate mount cleanup, guarded bridge, verified loopback targets |

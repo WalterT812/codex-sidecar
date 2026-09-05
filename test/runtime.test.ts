@@ -138,6 +138,23 @@ test('an old ready result cannot hide the loss of all mounted widgets', async t 
   assert.equal(app.launches(), 1);
 });
 
+test('immediate reopening waits for the previous coordinator to stop, then launches once', async t => {
+  const app = await fixture(t);
+  app.services.pollMs = 10_000;
+  await startCompanion({}, app.services);
+  app.setOwner(null);
+  let reopened = 0;
+  app.services.choosePort = async () => {
+    reopened++;
+    app.setOwner({ pid: 102, startedAt: '2026-09-05T00:02:00.0000000Z' });
+    return 23456;
+  };
+  await startCompanion({}, app.services);
+  assert.equal(reopened, 1);
+  assert.equal(await exists(app.lockPath), true);
+  assert.equal(app.connections.filter(connection => connection.connected && connection.present).length, 1);
+});
+
 for (const phase of ['choosePort', 'renderer', 'discoverCli'] as const) {
   test(`stop during ${phase} retains ownership until that operation settles`, async t => {
     const app = await fixture(t);

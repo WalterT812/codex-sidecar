@@ -50,9 +50,10 @@ function ready(value: unknown): InstanceReady {
   return { port: data.port, version: data.version };
 }
 
-async function assertOwner(directory: string, expected: LockOwner): Promise<void> {
+async function assertOwner(directory: string, expected: LockOwner, checkProcess = true): Promise<void> {
   const current = await getLockOwner(directory);
   if (!current || current.pid !== expected.pid || current.token !== expected.token) throw new InstanceOwnerChangedError();
+  if (!checkProcess) return;
   try { process.kill(current.pid, 0); }
   catch (error) { if ((error as NodeJS.ErrnoException).code === 'ESRCH') throw new InstanceOwnerChangedError(); }
 }
@@ -88,7 +89,7 @@ export async function startInstanceServer(ownerInput: LockOwner, handler: (reque
     };
     const fail = (reason: unknown) => respond({ type: 'error', error: message(reason) });
     timer = setTimeout(() => { fail('The instance handshake timed out.'); socket.destroySoon(); }, HELLO_TIMEOUT);
-    replies.set(socket, fail);
+    replies.set(socket, reason => respond({ type: 'stopping', error: message(reason) }));
     socket.once('close', () => {
       clearTimeout(timer); sockets.delete(socket); replies.delete(socket);
       if (!processing) slots.delete(slot);
@@ -144,6 +145,7 @@ function joinOnce(directory: string, owner: LockOwner, requestedPort: number | u
   return new Promise((resolve, reject) => {
     const nonce = randomUUID(); const socket = createConnection(endpoint(directory, owner));
     let done = false; let connected = false; let checking = false; let verifyingResponse = false;
+    let stoppingReason: string | undefined;
     let buffer = Buffer.alloc(0);
     let connectTimer: ReturnType<typeof setTimeout>;
     let timeout: ReturnType<typeof setTimeout>;
@@ -155,10 +157,14 @@ function joinOnce(directory: string, owner: LockOwner, requestedPort: number | u
     };
     const remaining = Math.max(1, deadline - Date.now());
     connectTimer = setTimeout(() => finish(new ListenerUnavailableError('The instance listener is not available.')), Math.min(500, remaining));
-    timeout = setTimeout(() => finish(new Error('The existing Sidecar did not respond with readiness before the timeout.')), remaining);
+    timeout = setTimeout(() => finish(new Error(stoppingReason === undefined
+      ? 'The existing Sidecar did not respond with readiness before the timeout.'
+      : `${stoppingReason} Timed out waiting for the previous owner to release its lock. The lock was preserved.`)), remaining);
     ownerPoll = setInterval(() => {
       if (done || checking) return; checking = true;
-      void assertOwner(directory, owner).catch(error => finish(error instanceof Error ? error : new Error(message(error)))).finally(() => { checking = false; });
+      // The authenticated stopping phase grants no ownership by itself. Wait
+      // for a changed authoritative lock, not just a closed socket or dead PID.
+      void assertOwner(directory, owner, false).catch(error => finish(error instanceof Error ? error : new Error(message(error)))).finally(() => { checking = false; });
     }, 100);
     socket.once('connect', () => {
       connected = true; clearTimeout(connectTimer);
@@ -175,9 +181,16 @@ function joinOnce(directory: string, owner: LockOwner, requestedPort: number | u
         if (newline !== buffer.length - 1) throw new Error('Invalid instance response framing.');
         const response = record(JSON.parse(buffer.subarray(0, newline).toString('utf8')));
         if (response.nonce !== nonce || response.token !== owner.token || response.pid !== owner.pid) throw new Error('The instance response nonce or owner identity does not match.');
-        if (response.type === 'error') {
+        if (response.type === 'error' || response.type === 'stopping') {
           fields(response, ['type', 'nonce', 'token', 'pid', 'error']);
           if (typeof response.error !== 'string' || response.error.length > 500) throw new Error('Invalid instance error response.');
+          if (response.type === 'stopping') {
+            stoppingReason = message(response.error);
+            verifyingResponse = true;
+            socket.removeAllListeners('data'); socket.destroy();
+            void assertOwner(directory, owner, false).catch(error => finish(error instanceof Error ? error : new Error(message(error))));
+            return;
+          }
           finish(new Error(message(response.error))); return;
         }
         fields(response, ['type', 'nonce', 'token', 'pid', 'port', 'version']);
