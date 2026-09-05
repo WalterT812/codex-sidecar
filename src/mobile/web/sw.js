@@ -1,4 +1,4 @@
-const CACHE='sidecar-shell-v2';
+const CACHE='sidecar-shell-v3';
 const ASSETS=['./','./app.js','./markdown.js','./style.css','./icon.svg','./manifest.webmanifest'];
 self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(ASSETS))));
 self.addEventListener('activate',event=>event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(key=>key.startsWith('sidecar-shell-')&&key!==CACHE).map(key=>caches.delete(key))))));
