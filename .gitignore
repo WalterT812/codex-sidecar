@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.local/
+.superpowers/
+coverage/
+test-results/
+*.log
+.env
+.env.*
+runtime.json
+state.json
+state.json.*

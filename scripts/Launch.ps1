@@ -1,0 +1,47 @@
+﻿param([switch]$Preview, [switch]$Stop)
+$ErrorActionPreference = 'Stop'
+$configPath = Join-Path $PSScriptRoot 'install.json'
+try {
+    $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
+    $nodePath = $config.nodePath
+    if (-not (Test-Path -LiteralPath $nodePath -PathType Leaf)) { $nodePath = (Get-Command node.exe -ErrorAction Stop).Source }
+    $dataRoot = if ($env:CODEX_SIDECAR_DATA) { $env:CODEX_SIDECAR_DATA } else { Join-Path $env:LOCALAPPDATA 'Codex-Sidecar' }
+    New-Item -ItemType Directory -Path $dataRoot -Force | Out-Null
+    # A second launcher or stop command must not truncate an active run's logs.
+    $runId = '{0}-{1}-{2}' -f (Get-Date -Format 'yyyyMMdd-HHmmss'), $PID, ([Guid]::NewGuid().ToString('N').Substring(0, 8))
+    $outLog = Join-Path $dataRoot ("launch-$runId-output.log")
+    $errLog = Join-Path $dataRoot ("launch-$runId-error.log")
+    $cliPath = Join-Path $PSScriptRoot 'dist\cli.js'
+    $mode = if ($Preview) { 'demo' } elseif ($Stop) { 'stop' } else { 'start' }
+    $process = Start-Process -FilePath $nodePath -ArgumentList ('"{0}" {1}' -f $cliPath, $mode) -WorkingDirectory $PSScriptRoot -WindowStyle Hidden -PassThru -RedirectStandardOutput $outLog -RedirectStandardError $errLog
+    $timeoutSeconds = if ($mode -eq 'start') { 60 } else { 15 }
+    $clock = [Diagnostics.Stopwatch]::StartNew()
+    $failure = $null
+    while ($clock.Elapsed.TotalSeconds -lt $timeoutSeconds) {
+        $process.Refresh()
+        if ($process.HasExited) {
+            $process.WaitForExit()
+            if ($mode -eq 'stop' -and $process.ExitCode -eq 0) { return }
+            $failure = "启动进程已退出（代码 $($process.ExitCode)），尚未确认连接。"
+            if ($mode -eq 'stop') { $failure = "停止请求未能完成（代码 $($process.ExitCode)）。" }
+            break
+        }
+        if ($mode -ne 'stop' -and (Test-Path -LiteralPath $outLog)) {
+            $output = (Get-Content -LiteralPath $outLog -Tail 40 -Encoding UTF8) -join "`n"
+            if ($mode -eq 'start' -and $output -match '(?m)^SIDECAR_READY=1\r?$') { return }
+            if ($mode -eq 'demo') {
+                $match = [regex]::Match($output, '(?m)^DEMO_URL=(http://127\.0\.0\.1:\d+)\r?$')
+                if ($match.Success) { Start-Process -FilePath $match.Groups[1].Value; return }
+            }
+        }
+        Start-Sleep -Milliseconds 200
+    }
+    if (-not $failure) { $failure = "等待 $timeoutSeconds 秒后仍未确认就绪。Sidecar 可能仍在后台等待连接。" }
+    $detail = if (Test-Path -LiteralPath $errLog) { (Get-Content -LiteralPath $errLog -Tail 12 -Encoding UTF8) -join "`n" } else { '' }
+    if ($detail.Length -gt 3000) { $detail = $detail.Substring($detail.Length - 3000) }
+    Add-Type -AssemblyName PresentationFramework
+    [System.Windows.MessageBox]::Show("$failure`n`nCodex 没有被强制关闭。首次启用时，请完成手上的工作并正常退出 Codex，再打开这个入口。`n`n$detail`n`n本次日志：`n$outLog`n$errLog", 'Codex Sidecar', 'OK', 'Information') | Out-Null
+} catch {
+    Add-Type -AssemblyName PresentationFramework
+    [System.Windows.MessageBox]::Show($_.Exception.Message, 'Codex Sidecar', 'OK', 'Error') | Out-Null
+}

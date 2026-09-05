@@ -1,0 +1,9 @@
+# Lilac cover
+
+File: `assets/lilac-cover-v1.png`.
+
+Generated with the built-in imagegen tool on 5 September 2026 for this project. Original illustration of an adult fictional character; no downloaded third-party artwork or character likeness was used. The generated original is included as-is, with cropping and layout handled by CSS. It is distributed with this project under its license to the extent applicable rights permit.
+
+Generation prompt:
+
+> Create an original premium anime illustration for the art cover of a refined personal desktop tool drawer. Landscape 3:2 composition, high-quality detailed Japanese anime key visual, mature adult woman clearly around 27 years old, long flowing dark plum hair, luminous amethyst eyes, an inviting confident gaze toward the viewer and a subtle teasing smile. She wears an elegant fitted ivory off-the-shoulder dress with a tasteful sweetheart neckline, a delicate thin silver necklace, shoulders visible, graceful feminine silhouette. Sophisticated, alluring and romantic, fully clothed, no lingerie, no nudity. Three-quarter upper body portrait from head to waist, character occupies the RIGHT 60 percent, face near the upper-right third, all of head visible. Dreamy late-afternoon light through sheer curtains, pale lavender and warm ivory room, gentle mauve shadows, softly glowing skin, fine painterly detail and delicate anime linework, beautiful expressive eyes, soft movement in hair, fresh airy mood. LEFT 35 percent is very pale ivory-lilac negative space suitable for an unobtrusive small app title. The image should feel personal and captivating, not corporate clipart or childish mascot. Refined composition, clean anatomy and natural hands, no text, no logo, no watermark, no UI frame. Produce the finished illustration itself, not a screenshot or mockup.
