@@ -6,7 +6,6 @@ import { createNativeTheme } from './theme.js';
 import { createTranslator } from './translator.js';
 import { createWorkspaces } from './workspaces.js';
 import {drawerPlacement} from './placement.js';
-import {createSummaryMode} from './summary-mode.js';
 
 declare const __SIDECAR_ART_URL__: string;
 declare const __SIDECAR_WALLPAPER_URL__: string;
@@ -75,7 +74,6 @@ export function mountSidecar(win: Window): SidecarApi | null {
   const artworkUrl = typeof __SIDECAR_ART_URL__ === 'string' && /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(__SIDECAR_ART_URL__) ? __SIDECAR_ART_URL__ : '';
   const nativeTheme = demo ? null : createNativeTheme(document, typeof __SIDECAR_WALLPAPER_URL__ === 'string' ? __SIDECAR_WALLPAPER_URL__ : '');
   const workspaces = demo ? null : createWorkspaces(win);
-  const summaryMode=demo?null:createSummaryMode(document,()=>setOpen(false));
   const translator = createTranslator(win, (text,source,target)=>new Promise((resolve,reject)=>send('translate',{text,source,target},message=>{if(message.error)setError(message.error);if(typeof message.translation==='string')resolve(message.translation);else reject(Error('Translation response missing.'));},reject)),()=>{if(state)send('translation.clear',{revision:state.revision});});
   const zh = () => state?.settings.locale !== 'en';
   const t = (cn: string, en: string) => zh() ? cn : en;
@@ -176,7 +174,6 @@ export function mountSidecar(win: Window): SidecarApi | null {
   function setOpen(value: boolean, focus = false): void {
     cancel(hoverTimer); cancel(closeTimer);
     opened = value;
-    summaryMode?.setOpen(value);
     positionDrawer();
     drawer.hidden = !value;
     trigger.setAttribute('aria-expanded', String(value));
@@ -254,12 +251,11 @@ export function mountSidecar(win: Window): SidecarApi | null {
   function positionDrawer():void{
     if(destroyed)return;
     const obstacles=Array.from(document.querySelectorAll<HTMLElement>('[data-pip-obstacle="thread-summary-panel"]')).filter(node=>win.getComputedStyle(node).display!=='none').map(node=>node.getBoundingClientRect());
-    const placement=drawerPlacement(win.innerWidth,win.innerHeight,obstacles);
-    // The native header is taller on menu-bar and edge-scroll layouts.
-    placement.top=Math.max(placement.top,anchor!.getBoundingClientRect().bottom+12);
-    drawer.style.right=placement.right+'px';drawer.style.top=placement.top+'px';drawer.style.width=placement.width+'px';
-    drawer.style.maxHeight=Math.max(120,win.innerHeight-placement.top-14)+'px';
-    rail.style.right=placement.railRight+'px';
+    const placement=drawerPlacement(win.innerWidth,win.innerHeight,obstacles,anchor!.getBoundingClientRect().bottom);
+    drawer.style.right=placement.right+'px';drawer.style.top='auto';drawer.style.bottom=placement.bottom+'px';drawer.style.width=placement.width+'px';
+    drawer.style.height=drawer.style.maxHeight=placement.height+'px';
+    drawer.dataset.space=placement.height<180?'blocked':placement.height<440?'compact':'normal';
+    rail.title=placement.height<180?t('请先收起上方摘要，为工具窗留出空间。','Collapse the summary above to make room for Sidecar.'):'';
   }
   function renderQuota(): void {
     const enabled = state?.settings.enabled.quota !== false;
@@ -546,7 +542,7 @@ export function mountSidecar(win: Window): SidecarApi | null {
       placementObserver?.disconnect();
       host.remove();
       nativeTheme?.destroy();
-      workspaces?.destroy(); translator.destroy();summaryMode?.destroy();
+      workspaces?.destroy(); translator.destroy();
       if (win.__CODEX_SIDECAR__ === api) delete win.__CODEX_SIDECAR__;
       state = null; quota = null; draft = null;
     },

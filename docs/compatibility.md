@@ -62,3 +62,11 @@ No process is force-closed. If an existing desktop has no verified connection, s
 CDP grants powerful access to the desktop renderer. The companion binds only to a loopback endpoint owned by the exact detected desktop executable, validates main-frame targets, and exposes a small action allowlist. Run only companion code you trust. These checks do not protect against malicious code already running as the same Windows user.
 
 Personal account data, authentication files and native conversation databases are not bundled with this project. Notes and bookmarks are local plain-text data, not an encrypted vault.
+
+## Alpha.7 — bottom-right dock and consistent conversation typography (5 September 2026)
+
+- Removed native-summary toggle interception. Opening or closing either panel no longer changes the other panel's state.
+- In the live 2562 × 1394 renderer, the dock measured x=2398, y=1332, 148 × 46, with a 16px right/bottom inset. Its popover measured x=2156, y=682, 390 × 640. Repeated native summary toggles did not move or close it.
+- Geometry tests cover an overlapping upper-right summary, reduced vertical space and narrow windows. A short popover omits artwork and duplicate quota; less than 180px of space leaves the dock accessible until the user collapses the summary.
+- Verified actual platform font glyphs in native user messages, assistant replies and the composer: HarmonyOS Sans SC. All three now compute to 16px with 28.8px line height. The previous theme already selected HarmonyOS, but missed the assistant-specific typography marker and the composer's inline size.
+- 119 tests, TypeScript checks and production build passed. Installed to the managed D: application directory and reattached without restarting Codex. Motion remained off.

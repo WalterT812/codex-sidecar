@@ -362,3 +362,16 @@ test('artwork updates preserve the active editor and quota refresh preserves its
     assert.equal(app.shadow?.querySelector('[data-testid="artwork-cover"]'), null);
   } finally { app.close(); delete ambient.__SIDECAR_ART_URL__; }
 });
+
+test('native summary clicks and Sidecar opening remain independent',()=>{
+ const app=setup({native:true,demo:false});
+ try{
+  const summary=app.win.document.createElement('button');summary.setAttribute('aria-label','Toggle pinned summary');summary.setAttribute('aria-pressed','true');
+  let clicks=0;summary.onclick=()=>{clicks++;summary.setAttribute('aria-pressed',String(summary.getAttribute('aria-pressed')!=='true'));};
+  app.win.document.querySelector('header')!.append(summary);
+  app.query('drawer-trigger').click();assert.equal(clicks,0);assert.equal(summary.getAttribute('aria-pressed'),'true');
+  summary.click();assert.equal(app.query('drawer').hidden,false);summary.click();assert.equal(app.query('drawer').hidden,false);
+  app.query('drawer-close').click();assert.equal(summary.getAttribute('aria-pressed'),'true');
+  app.api.destroy();assert.equal(clicks,2);
+ }finally{app.close();}
+});

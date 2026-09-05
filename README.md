@@ -10,7 +10,7 @@ Personal themes and components for the **official Codex desktop app**: a whole-w
 
 - Royal Pearl whole-window theme: bright glass wallpaper, purple task selection, champagne accents, and HarmonyOS Sans SC when installed. A single switch restores native appearance. See [design and behavior](docs/royal-pearl.md).
 - Shared Codex account quota from the official stdio app-server, with the weekly window first; Spark pools are hidden. Unknown/stale states and reset times remain explicit.
-- Right-edge drawer: hover, click, keyboard, pin, and Escape; it shares one position with the native pinned summary and clears the title bar.
+- Bottom-right tool dock: hover, click, keyboard, pin, and Escape; its rounded popover opens upward independently of the native pinned summary.
 - Workspace views over native sections, using their original new-chat actions.
 - Sol translation with medium reasoning, using Codex quota and local history for up to 50 translations; no new saved chat.
 - Local notes and conversation bookmarks, synchronized across attached windows with revision conflict protection.

@@ -92,7 +92,10 @@ ${S} *{scrollbar-color:#b6a8bc transparent;}
 
 /* Royal Pearl: quiet reading surfaces, animated satin only on the edges. */
 ${S} #root :where(div,span,p,li,a,label,button,input,textarea,select,option,h1,h2,h3,h4,summary,td,th):not(.katex *,.monaco-editor *,.xterm *,pre *,code *){font-family:var(--font-sans)!important;}
-${S} [data-markdown-text-tone]{font-size:16px;line-height:1.85;font-weight:400;}
+/* Assistant replies use text-style; user messages use text-tone. The native
+   composer also sets its size inline. Cover all three reading surfaces. */
+${S} :is([data-markdown-text-tone="user-message"],[data-markdown-text-style="assistant-message"],[data-codex-composer="true"]){font-family:"HarmonyOS Sans SC","HarmonyOS Sans","Segoe UI","Microsoft YaHei UI",sans-serif!important;font-size:16px!important;line-height:1.8!important;font-weight:400;}
+${S} :is([data-markdown-text-tone="user-message"],[data-markdown-text-style="assistant-message"],[data-codex-composer="true"]) :where(p,li){font-size:inherit!important;line-height:1.8!important;}
 ${S} :where(pre,code,.monaco-editor,.xterm){font-family:var(--font-mono)!important;}
 ${S} [data-app-shell-left-panel-appearance]{background:linear-gradient(140deg,#f4f1ed 0%,#e8e0e9 28%,#f9f7f2 48%,#e5dfed 72%,#ede6d8 100%)!important;background-size:260% 260%!important;border-right:1px solid #c6b58b55;}
 ${S}[data-codex-sidecar-motion="on"] [data-app-shell-left-panel-appearance]{animation:sidecar-satin-flow 24s ease-in-out infinite alternate;}
