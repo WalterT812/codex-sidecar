@@ -17,7 +17,7 @@ if (Test-Path -LiteralPath $targetRoot) {
 }
 New-Item -ItemType Directory -Path (Join-Path $targetRoot 'dist') -Force | Out-Null
 foreach ($name in @('cli.js','renderer.js')) { Copy-Item -LiteralPath (Join-Path $sourceRoot "dist\$name") -Destination (Join-Path $targetRoot "dist\$name") -Force }
-foreach ($name in @('LICENSE','THIRD_PARTY_NOTICES.md','README.md','README.zh-CN.md','CONTRIBUTING.md','docs/compatibility.md','docs/components.md','docs/pearl-atelier.md','assets/ARTWORK.md','assets/ROYAL-ARTWORK.md','assets/royal-pearl-wallpaper-v2.png','docs/royal-pearl.md','assets/pearl-wallpaper-v1.png','assets/pearl-icon-study-v1.png','assets/lilac-cover-v1.png','docs/superpowers/specs/2026-09-05-sidecar-design.md')) {
+foreach ($name in @('LICENSE','THIRD_PARTY_NOTICES.md','README.md','README.zh-CN.md','CONTRIBUTING.md','docs/compatibility.md','docs/mobile.md','docs/components.md','docs/pearl-atelier.md','assets/ARTWORK.md','assets/ROYAL-ARTWORK.md','assets/royal-pearl-wallpaper-v2.png','docs/royal-pearl.md','assets/pearl-wallpaper-v1.png','assets/pearl-icon-study-v1.png','assets/lilac-cover-v1.png','docs/superpowers/specs/2026-09-05-sidecar-design.md')) {
     $documentationTarget = Join-Path $targetRoot $name
     New-Item -ItemType Directory -Path (Split-Path -Parent $documentationTarget) -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $sourceRoot $name) -Destination $documentationTarget -Force
