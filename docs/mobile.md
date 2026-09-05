@@ -1,5 +1,7 @@
 # Private mobile entrance
 
+As of 6 September 2026 (alpha.17), this custom mobile entry is on hold: phone use has moved to official ChatGPT Remote, and Sidecar focuses on the desktop. The pairing tool is hidden and saved layouts do not reopen it. The existing website, service and data are retained; the instructions below describe the earlier interface.
+
 This optional, single-owner PWA keeps the Windows Codex desktop as the execution owner. The server never receives a Codex login token, API key, CDP endpoint, generic shell bridge or filesystem access. It serves the phone UI, authenticates paired devices, caches recently requested text history and stores an outbound message queue.
 
 ## Use

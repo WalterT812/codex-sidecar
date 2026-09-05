@@ -13,6 +13,9 @@ import {createSourceNavigator,sourceMessages,selectedSource} from './sources.js'
 type Result=Extract<HostMessage,{type:'result'}>;
 const titles={tools:'工具箱',outline:'对话目录',search:'找回原文',snippets:'常用片段',resume:'接着聊',inbox:'工作收件箱',decisions:'当前决定',learning:'学习桌',resources:'软件与成果',ideas:'随手记',appearance:'外观',voice:'语音输入',mobile:'手机入口'};
 type Kind=keyof typeof titles;
+// Mobile use has moved to official Remote. Keep the optional bridge and data,
+// but do not offer or restore the retired pairing panel in the desktop UI.
+const visibleTool=(kind:Kind)=>kind!=='mobile';
 interface Panel {drawer:HTMLElement;body:HTMLElement;status:HTMLElement;frame:ReturnType<typeof createFloatingFrame>;scope:string;refresh?:()=>void}
 export interface ReadMessage {source:MessageAnchor;role:string;text:string}
 export function messagesFromTurns(threadId:string,turns:any[]):ReadMessage[] {
@@ -44,7 +47,7 @@ export function createPersonalTools(win:Window,openTranslation:(text:string)=>vo
 `;
  shadow.append(style);doc.body.append(host);
  const panels=new Map<Kind,Panel>(),openByScope=new Map<string,Kind[]>();
- try{const saved=JSON.parse(win.sessionStorage.getItem('codex-sidecar.personal-open.v1')??'[]');for(const [key,value] of saved)if(typeof key==='string'&&Array.isArray(value))openByScope.set(key,value.filter((k:Kind)=>k in titles));}catch{}
+ try{const saved=JSON.parse(win.sessionStorage.getItem('codex-sidecar.personal-open.v1')??'[]');for(const [key,value] of saved)if(typeof key==='string'&&Array.isArray(value))openByScope.set(key,value.filter((k:Kind)=>k in titles&&visibleTool(k)));}catch{}
  const remember=()=>{openByScope.set(scope,[...panels].filter(([,p])=>!p.drawer.hidden).map(([k])=>k));while(openByScope.size>100)openByScope.delete(openByScope.keys().next().value!);try{win.sessionStorage.setItem('codex-sidecar.personal-open.v1',JSON.stringify([...openByScope]));}catch{}};
  function request(action:Action,payload:Record<string,unknown>):Promise<Result> {
   return new Promise((resolve,reject)=>{
@@ -72,12 +75,12 @@ export function createPersonalTools(win:Window,openTranslation:(text:string)=>vo
  }
  const views=new Map<Panel,Map<string,{nodes:Node[];refresh?:()=>void}>>();
  function activatePanel(p:Panel,next:string){if(p.scope===next)return;let cache=views.get(p);if(!cache){cache=new Map();views.set(p,cache);}cache.set(p.scope,{nodes:[...p.body.childNodes],refresh:p.refresh});while(cache.size>30)cache.delete(cache.keys().next().value!);const saved=cache.get(next);p.scope=next;p.body.replaceChildren(...saved?.nodes??[]);p.refresh=saved?.refresh;}
- function open(kind:Kind='tools') {const p=make(kind);activatePanel(p,scope);p.drawer.hidden=false;p.drawer.style.zIndex=String(++layer);host.style.zIndex=String(layer);if(!p.body.childNodes.length)render(kind,p);remember();}
+ function open(kind:Kind='tools') {if(!visibleTool(kind))return;const p=make(kind);activatePanel(p,scope);p.drawer.hidden=false;p.drawer.style.zIndex=String(++layer);host.style.zIndex=String(layer);if(!p.body.childNodes.length)render(kind,p);remember();}
  function render(kind:Kind,p:Panel) {
   p.body.replaceChildren();tell(p,'');p.refresh=undefined;
   if(kind==='tools') {
    p.body.append(element(doc,'p','help','每个工具都能独立打开。窗口布局随当前对话保存。'));
-   const grid=element(doc,'div','tool-grid');for(const key of Object.keys(titles) as Kind[])if(key!=='tools')grid.append(control(titles[key],()=>open(key)));grid.append(control('专注模式',()=>appearance.setFocus(true)));p.body.append(grid);return;
+   const grid=element(doc,'div','tool-grid');for(const key of Object.keys(titles) as Kind[])if(key!=='tools'&&visibleTool(key))grid.append(control(titles[key],()=>open(key)));grid.append(control('专注模式',()=>appearance.setFocus(true)));p.body.append(grid);return;
   }
   if(kind==='appearance'){renderAppearance(p);return;}
   if(kind==='voice'){renderVoice(p);return;}
