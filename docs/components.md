@@ -15,6 +15,16 @@ The current alpha has built-in component modules, not an executable third-party 
 
 For data acquisition, use documented APIs and separate providers from renderers. Retain unknown values and last-update information. For conversation links, use the official app's copied deep link. Do not invent message-level anchors or start parallel conversations to emulate existing context.
 
+## Bookmark controls (alpha.19)
+
+Saved cards expose a direct Delete action using the current store revision.
+Message-hover and selection bookmark buttons derive their saved state from shared
+snapshots, so re-hovering or deleting a bookmark updates the label. Identical
+pending captures are coalesced; an already-saved source/excerpt is not saved
+again. Existing records are preserved. Local verification passed all 150 tests;
+the live desktop showed a Delete button on the saved card and an inactive
+“已收藏” button on its original message.
+
 ## Personal tools and mobile adapter
 
 Alpha.14 introduces per-tool shadow panels and a separate appearance stylesheet. Personal views retain draft DOM nodes across task switches. Whole-message and selection bookmarks use validated native message/turn IDs; a versioned adapter reads the already-running desktop manager and its reveal controller. It does not create a replacement app-server for conversation execution.

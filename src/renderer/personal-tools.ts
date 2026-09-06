@@ -170,7 +170,16 @@ export function createPersonalTools(win:Window,openTranslation:(text:string)=>vo
   p.body.insertBefore(control('根据材料生成 3 道题 · Sol',()=>act(p,async()=>{tell(p,'正在根据材料出题…');const response=await request('assist',{kind:'learning',text:record.body});const raw=(response.text??'').replace(/^```(?:json)?\s*|\s*```$/g,'');const data=JSON.parse(raw);draw(data);await save('library.save',{id:record.id,kind:record.kind,title:record.title,body:record.body,status:record.status,...(record.source?{source:record.source}:{}),details:JSON.stringify(data)});tell(p,'题目已保存。先试着回答，再看反馈。');})),questions);
  }
 
- async function captureBookmark(anchor:MessageAnchor,text:string) {await save('bookmark.save',{title:text.trim().slice(0,80),url:'codex://threads/'+anchor.threadId,excerpt:text.slice(0,10000),source:anchor});}
+ const bookmarkSaves=new Map<string,Promise<unknown>>();
+ const bookmarkKey=(anchor:MessageAnchor,text:string)=>JSON.stringify([anchor.threadId,anchor.messageId,text.slice(0,10000)]);
+ const isBookmarked=(anchor:MessageAnchor,text?:string)=>state?.bookmarks.some(b=>b.source?.threadId===anchor.threadId&&b.source.messageId===anchor.messageId&&(text===undefined||b.excerpt===text.slice(0,10000)))??false;
+ async function captureBookmark(anchor:MessageAnchor,text:string) {
+  if(isBookmarked(anchor,text))return;
+  const key=bookmarkKey(anchor,text),existing=bookmarkSaves.get(key);if(existing)return existing;
+  const operation=save('bookmark.save',{title:text.trim().slice(0,80),url:'codex://threads/'+anchor.threadId,excerpt:text.slice(0,10000),source:anchor});
+  bookmarkSaves.set(key,operation);refreshBookmarkButtons();
+  try{return await operation;}finally{bookmarkSaves.delete(key);if(!disposed)refreshBookmarkButtons();}
+ }
  const toolbar=element(doc,'div','toolbar');toolbar.id='codex-sidecar-selection';toolbar.hidden=true;toolbar.setAttribute('role','toolbar');toolbar.setAttribute('aria-label','消息工具');shadow.append(toolbar);
  let selected:ReturnType<typeof selectedSource>=null;
  const toast=element(doc,'span','toast');
@@ -179,16 +188,21 @@ export function createPersonalTools(win:Window,openTranslation:(text:string)=>vo
  toolbarAction('便签',()=>selected?save('note.save',{title:selected.text.slice(0,60),body:selected.text,threadUrl:'codex://threads/'+selected.anchor.threadId}):undefined);
  toolbarAction('解释',()=>{if(selected){if(!insertComposer(win,`请解释这段内容，结合原对话上下文：\n\n${selected.text}`))throw Error('当前没有可用输入框');toolbar.hidden=true;}});
  toolbarAction('学习',()=>{if(selected){open('learning');editRecord(make('learning'),'learning',undefined,selected.text,selected.anchor);toolbar.hidden=true;}});toolbar.append(toast);
- const selectionChanged=()=>{win.setTimeout(()=>{if(disposed)return;selected=selectedSource(win);if(!selected){toolbar.hidden=true;return;}const range=win.getSelection()!.getRangeAt(0);if(typeof range.getBoundingClientRect!=='function')return;const rect=range.getBoundingClientRect();toolbar.hidden=false;toolbar.style.left=Math.max(8,Math.min(rect.left,win.innerWidth-380))+'px';toolbar.style.top=Math.max(70,Math.min(rect.top-48,win.innerHeight-60))+'px';toast.textContent='';},0);};
+ const selectionChanged=()=>{win.setTimeout(()=>{if(disposed)return;selected=selectedSource(win);if(!selected){toolbar.hidden=true;return;}const range=win.getSelection()!.getRangeAt(0);if(typeof range.getBoundingClientRect!=='function')return;const rect=range.getBoundingClientRect();toolbar.hidden=false;toolbar.style.left=Math.max(8,Math.min(rect.left,win.innerWidth-380))+'px';toolbar.style.top=Math.max(70,Math.min(rect.top-48,win.innerHeight-60))+'px';toast.textContent='';refreshBookmarkButtons();},0);};
  doc.addEventListener('mouseup',selectionChanged);doc.addEventListener('keyup',selectionChanged);
- const whole=control('收藏整条',()=>{if(hovered)void captureBookmark(hovered.anchor,hovered.text).then(()=>{whole.textContent='已收藏';},()=>{whole.textContent='收藏失败，请重试';});});whole.classList.add('toolbar');whole.hidden=true;shadow.append(whole);let hovered:ReturnType<typeof sourceMessages>[number]|undefined;
- const hover=(e:MouseEvent)=>{if(!e.target || !(e.target as Element).closest)return;const target=e.target as Element;if(target.closest('#codex-sidecar-personal-tools'))return;const node=target.closest('[data-response-annotation-target],[data-local-conversation-user-anchor]');hovered=node?sourceMessages(doc).find(r=>r.node===node):undefined;if(!hovered){whole.hidden=true;return;}const rect=hovered.node.getBoundingClientRect();whole.hidden=false;whole.textContent='收藏整条';whole.style.left=Math.max(10,Math.min(rect.right-86,win.innerWidth-95))+'px';whole.style.top=Math.max(65,rect.top-28)+'px';};doc.addEventListener('mouseover',hover);
+ const whole=control('收藏消息',()=>{const source=hovered;if(source)void captureBookmark(source.anchor,source.text).catch(()=>{if(hovered===source){whole.textContent='收藏失败，请重试';whole.disabled=false;}});});whole.classList.add('toolbar');whole.hidden=true;shadow.append(whole);let hovered:ReturnType<typeof sourceMessages>[number]|undefined;
+ function refreshBookmarkButtons(){
+  if(hovered){const saved=isBookmarked(hovered.anchor),busy=bookmarkSaves.has(bookmarkKey(hovered.anchor,hovered.text));whole.textContent=saved?'已收藏':busy?'收藏中…':'收藏消息';whole.disabled=saved||busy;whole.setAttribute('aria-pressed',String(saved));}
+  const selectionButton=toolbar.querySelector<HTMLButtonElement>('[data-testid="personal-收藏"]');
+  if(selectionButton){const saved=!!selected&&isBookmarked(selected.anchor,selected.text),busy=!!selected&&bookmarkSaves.has(bookmarkKey(selected.anchor,selected.text));selectionButton.textContent=saved?'已收藏':busy?'收藏中…':'收藏';selectionButton.disabled=saved||busy;selectionButton.setAttribute('aria-pressed',String(saved));}
+ }
+ const hover=(e:MouseEvent)=>{if(!e.target || !(e.target as Element).closest)return;const target=e.target as Element;if(target.closest('#codex-sidecar-personal-tools'))return;const node=target.closest('[data-response-annotation-target],[data-local-conversation-user-anchor]');hovered=node?sourceMessages(doc).find(r=>r.node===node):undefined;if(!hovered){whole.hidden=true;return;}const rect=hovered.node.getBoundingClientRect();whole.hidden=false;refreshBookmarkButtons();whole.style.left=Math.max(10,Math.min(rect.right-86,win.innerWidth-95))+'px';whole.style.top=Math.max(65,rect.top-28)+'px';};doc.addEventListener('mouseover',hover);
  const onScroll=()=>{toolbar.hidden=true;whole.hidden=true;};doc.addEventListener('scroll',onScroll,true);
  const interval=win.setInterval(()=>{const next=conversationScope(doc);if(next!==scope){remember();scope=next;appearance.setFocus(false);for(const [key,p] of panels){p.drawer.hidden=!(openByScope.get(scope)??[]).includes(key);p.frame.activate(scope);if(!p.drawer.hidden){activatePanel(p,scope);if(!p.body.childNodes.length)render(key,p);}}for(const key of openByScope.get(scope)??[])if(!panels.has(key))open(key);toolbar.hidden=whole.hidden=true;}},350);
  for(const kind of openByScope.get(scope)??[])open(kind);
  return {
   open,navigate:navigator.go,captureBookmark,
-  receive(message:HostMessage){if(message.type==='result'){const operation=pending.get(message.id);if(operation){pending.delete(message.id);win.clearTimeout(operation.timer);if(message.ok)operation.resolve(message);else operation.reject(Error(message.error??'操作失败'));}}else{const changed=state?.revision!==message.state.revision;state=message.state;if(changed)appearance.apply(state.settings.appearance);if(changed)for(const p of panels.values())p.refresh?.();}},
+  receive(message:HostMessage){if(message.type==='result'){const operation=pending.get(message.id);if(operation){pending.delete(message.id);win.clearTimeout(operation.timer);if(message.ok)operation.resolve(message);else operation.reject(Error(message.error??'操作失败'));}}else{const changed=state?.revision!==message.state.revision;state=message.state;refreshBookmarkButtons();if(changed)appearance.apply(state.settings.appearance);if(changed)for(const p of panels.values())p.refresh?.();}},
   destroy(){if(disposed)return;disposed=true;remember();win.clearInterval(interval);for(const operation of pending.values()){win.clearTimeout(operation.timer);operation.reject(Error('Sidecar 已断开'));}pending.clear();doc.removeEventListener('mouseup',selectionChanged);doc.removeEventListener('keyup',selectionChanged);doc.removeEventListener('mouseover',hover);doc.removeEventListener('scroll',onScroll,true);for(const panel of panels.values())panel.frame.destroy();navigator.destroy();appearance.destroy();host.remove();},
  };
 }

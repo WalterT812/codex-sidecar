@@ -28,6 +28,30 @@ test('personal editors preserve their actual draft nodes and independent visibil
 test('snippet insertion preserves native composer editing and never submits a message',()=>{
  const f=setup();try{let calls:unknown[]=[];f.win.document.execCommand=(...args)=>{calls=args;return true;};assert.equal(insertComposer(f.win,'new text'),true);assert.deepEqual(calls,['insertText',false,'\n\nnew text']);assert.equal(f.requests.length,0);}finally{f.close();}
 });
+
+test('message bookmark status survives re-hover and resets after its last bookmark is deleted',async()=>{
+ const f=setup();try{
+  const node=f.win.document.createElement('div');node.dataset.responseAnnotationConversation=a;node.dataset.responseAnnotationTarget='message-1';node.textContent='A useful explanation';f.win.document.body.append(node);
+  const hover=()=>node.dispatchEvent(new f.dom.window.MouseEvent('mouseover',{bubbles:true}));hover();
+  const button=f.shadow.querySelector<HTMLButtonElement>('[data-testid="personal-收藏消息"]')!;
+  button.click();button.click();assert.equal(f.requests.filter(r=>r.action==='bookmark.save').length,1);assert.equal(button.disabled,true);
+  const request=f.requests.at(-1)!;
+  const bookmark={id:b,title:'Saved',url:'codex://threads/'+a,excerpt:node.textContent,source:{threadId:a,messageId:'message-1',quote:node.textContent},createdAt:'2026-09-06T00:00:00Z'};
+  f.state.bookmarks=[bookmark];f.state.revision++;f.snapshot();f.tools.receive({type:'result',id:request.id,ok:true});await delay(0);
+  hover();assert.equal(button.textContent,'已收藏');assert.equal(button.getAttribute('aria-pressed'),'true');assert.equal(button.disabled,true);
+  await f.tools.captureBookmark(bookmark.source,bookmark.excerpt);assert.equal(f.requests.filter(r=>r.action==='bookmark.save').length,1);
+  f.state.bookmarks=[];f.state.revision++;f.snapshot();assert.equal(button.textContent,'收藏消息');assert.equal(button.disabled,false);
+ }finally{f.close();}
+});
+
+test('failed bookmark save leaves the same message available for retry',async()=>{
+ const f=setup();try{
+  const node=f.win.document.createElement('div');node.dataset.responseAnnotationConversation=a;node.dataset.responseAnnotationTarget='message-2';node.textContent='Retry me';f.win.document.body.append(node);node.dispatchEvent(new f.dom.window.MouseEvent('mouseover',{bubbles:true}));
+  const button=f.shadow.querySelector<HTMLButtonElement>('[data-testid="personal-收藏消息"]')!;button.click();const request=f.requests.at(-1)!;
+  f.tools.receive({type:'result',id:request.id,ok:false,error:'Storage unavailable'});await delay(0);
+  assert.equal(button.disabled,false);assert.notEqual(button.textContent,'已收藏');assert.equal(f.state.bookmarks.length,0);
+ }finally{f.close();}
+});
 test('learning requires an answer and saves student answer and feedback alongside questions',()=>{
  const f=setup();try{
   f.state.library=[{id:a,kind:'learning',title:'Stack',body:'Stack is last in first out.',status:'active',createdAt:'2026-09-05T00:00:00Z',updatedAt:'2026-09-05T00:00:00Z',details:JSON.stringify({questions:[{question:'Which leaves first?',answer:'Last item',evidence:'last in first out'}]})}];f.state.revision++;f.snapshot();f.tools.open('learning');f.button('开始练习').click();f.button('作答后看参考答案').click();assert.ok(!f.shadow.textContent?.includes('参考答案\nLast item'));

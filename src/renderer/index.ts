@@ -199,7 +199,7 @@ function mountPanel(win:Window,options:PanelOptions):PanelApi|null {
   }
   function renderBusy(): void {
     const saving = [...pending.values()].some(item => item.action === 'note.save' || item.action === 'bookmark.save' || item.action === 'note.delete' || item.action === 'bookmark.delete');
-    content.querySelectorAll<HTMLButtonElement>('[data-testid="editor-save"], [data-testid="editor-delete"]').forEach(node => { node.disabled = saving || !state; });
+    content.querySelectorAll<HTMLButtonElement>('[data-testid="editor-save"], [data-testid="editor-delete"], [data-testid="bookmark-delete"]').forEach(node => { node.disabled = saving || !state; });
     content.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('.form input, .form textarea').forEach(node => { node.disabled = saving; });
   }
   function setOpen(value: boolean, focus = false, remember = true): void {
@@ -422,6 +422,12 @@ function mountPanel(win:Window,options:PanelOptions):PanelApi|null {
       if (url && validLink(url)) {
         const visit = button(document, t('source' in item && item.source?'回到原消息':'打开原链接', 'Open original'), `${kind}-open`, 'arrow');
         visit.onclick = () => {if('source' in item&&item.source&&options.source)void options.source(item.source).catch(error=>setError(error.message));else send('open.link', { url });}; meta.append(visit);
+      }
+      if (kind === 'bookmark') {
+        const remove = button(document, t('删除', 'Delete'), 'bookmark-delete', 'trash');
+        remove.setAttribute('aria-label', t('删除收藏：', 'Delete bookmark: ') + item.title);
+        remove.onclick = () => { if (state) send('bookmark.delete', { id: item.id, revision: state.revision }, renderContent); };
+        meta.append(remove);
       }
       card.append(open, meta); list.append(card);
     }

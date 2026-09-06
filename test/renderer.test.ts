@@ -287,6 +287,16 @@ test('bookmark save uses a validated manual link and exact flat bridge payload',
   } finally { app.close(); }
 });
 
+test('bookmark cards delete the selected saved item directly with its current revision',()=>{
+ const state=makeState();state.bookmarks=[{id:'11111111-1111-4111-8111-111111111111',title:'Keep this',url:'https://example.com/one',excerpt:'First',createdAt:'2026-09-06T00:00:00Z'},{id:'22222222-2222-4222-8222-222222222222',title:'Remove this',url:'https://example.com/two',excerpt:'Second',createdAt:'2026-09-06T00:00:00Z'}];
+ const app=setup({state});try{
+  app.query('tab-bookmarks').click();const remove=app.shadow!.querySelector<HTMLButtonElement>('[data-id="22222222-2222-4222-8222-222222222222"] [data-testid="bookmark-delete"]')!;remove.click();
+  const request=app.requests.at(-1)!;assert.equal(request.action,'bookmark.delete');assert.deepEqual(request.payload,{id:'22222222-2222-4222-8222-222222222222',revision:7});assert.equal(remove.disabled,true);
+  state.bookmarks.splice(1,1);state.revision++;app.api.receive({type:'snapshot',state,quota:unknownQuota()});app.api.receive({type:'result',id:request.id,ok:true});
+  assert.equal(app.shadow!.querySelectorAll('[data-testid="bookmark-card"]').length,1);assert.equal(app.shadow!.querySelector('[data-testid="bookmark-card"]')!.getAttribute('data-id'),'11111111-1111-4111-8111-111111111111');
+ }finally{app.close();}
+});
+
 test('master settings stay available when every component is disabled', () => {
   const state = makeState(); state.settings.enabled = { quota: false, notes: false, bookmarks: false, translation: false };
   const app = setup({ state });
