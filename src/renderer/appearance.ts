@@ -7,7 +7,7 @@ export function createAppearance(win:Window) {
  function apply(value?:Appearance) {
   const a={...defaultAppearance,...value},font=fonts[a.font]??fonts.harmony;
   const root='html:root[data-codex-sidecar-theme="pearl"]';
-  style.textContent=`${root}{--font-sans:${font}!important;--font-content:${font}!important;--font-sans-default:${font}!important;--sidecar-font:${font};--sidecar-panel-opacity:${a.opacity/100};--sidecar-wallpaper-cover:${1-a.wallpaper/100};}
+  style.textContent=`${root}{--font-sans:${font}!important;--font-content:${font}!important;--font-sans-default:${font}!important;--sidecar-font:${font};--sidecar-code-size:${Math.max(15,a.size)}px;--sidecar-panel-opacity:${a.opacity/100};--sidecar-wallpaper-cover:${1-a.wallpaper/100};}
 ${root} [data-markdown-text-tone="user-message"],${root} [data-markdown-text-style="assistant-message"],${root} [data-codex-composer="true"]{font-family:${font}!important;font-size:${a.size}px!important;line-height:${a.lineHeight}!important;}
 ${root} :is([data-markdown-text-tone="user-message"],[data-markdown-text-style="assistant-message"],[data-codex-composer="true"]) :is(p,li){font-size:inherit!important;line-height:inherit!important;}
 [data-sidecar-source-highlight="true"]{outline:2px solid #b69b67!important;outline-offset:6px!important;border-radius:14px!important;}

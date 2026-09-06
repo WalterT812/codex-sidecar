@@ -86,6 +86,13 @@ ${S} [data-markdown-table]>div{width:100%!important;max-width:100%!important;ove
 ${S} [data-user-message-bubble]{background:linear-gradient(115deg,#ede3f8f5,#e8edf9f5)!important;color:#4b4160!important;border:1px solid #cdbde17a;border-radius:19px 19px 6px 19px!important;box-shadow:0 4px 18px #8b729c0a;}
 ${S} :where([data-markdown-text-tone],[data-codex-composer="true"]){font-family:var(--font-content)!important;font-size:15px;line-height:1.8;}
 ${S} :where(pre,code,.monaco-editor,.xterm){font-family:var(--font-mono)!important;}
+/* Native fenced blocks can be a standalone code.text-size-code (no pre).
+   Give CJK comments an explicit sans fallback and avoid tiny italic glyphs. */
+${S} :is(code.text-size-code,pre code){font-family:"Cascadia Mono","Cascadia Code",Consolas,"HarmonyOS Sans SC","Microsoft YaHei UI",monospace!important;font-size:var(--sidecar-code-size,16px)!important;line-height:1.7!important;font-style:normal!important;color:#302b38;}
+${S} :is(code.text-size-code,pre code) span{font-family:inherit!important;font-size:inherit!important;line-height:inherit!important;}
+${S} :is(code.text-size-code,pre code) :is(.hljs-comment,.hljs-quote){font-style:normal!important;color:#595362!important;}
+${S} :is(code.text-size-code,pre code) .hljs-string{color:#24653c!important;}
+${S} :is(code.text-size-code,pre code) :is(.hljs-number,.hljs-literal){color:#91471f!important;}
 ${S} [data-composer-surface-variant]{background:#fffdfefa!important;border:1px solid #c8b9dc99!important;border-radius:20px!important;box-shadow:0 10px 36px #7e688d15,inset 0 1px #fff!important;}
 ${S} [data-composer-surface-variant]:focus-within{border-color:#a88ac9!important;box-shadow:0 0 0 3px #c9b4e325,0 10px 36px #7e688d15!important;}
 ${S} [data-composer-surface-variant] :where(button){border-radius:9px;}

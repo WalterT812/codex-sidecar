@@ -3,6 +3,15 @@
 Whole-window appearance work, researched and implemented on 5 September 2026.
 This is an independent personal theme for the official client.
 
+Code readability update, 6 September 2026 (alpha.18): the observed native block
+uses `code.text-size-code` without a `pre` wrapper. It previously rendered at
+12px with italic Chinese comments. Fenced code now follows the appearance size
+(16px by default, minimum 15px), uses 1.7 line spacing and an explicit HarmonyOS
+Sans SC fallback after the Latin monospace fonts. Comments are upright, with
+darker comment, string and numeric colors. Inline code and editor panes keep
+their existing sizes. Live desktop CSS probes confirmed 16px / 27.2px, upright
+comments and the available Chinese font; all 147 existing tests passed.
+
 ## Design brief
 
 The user wants the entire native workspace to feel personal: task entries,
