@@ -12,7 +12,7 @@ export interface BridgeContext {
   revealResource?:(id:string)=>Promise<void>;
 }
 
-const ACTIONS: readonly Action[] = ['ui.ready', 'note.save', 'note.delete', 'bookmark.save', 'bookmark.delete', 'settings.patch', 'quota.refresh', 'open.link', 'ui.detach', 'translate', 'translation.clear', 'library.save', 'library.delete', 'assist', 'mobile', 'resource.reveal'];
+const ACTIONS: readonly Action[] = ['ui.ready', 'note.save', 'note.delete', 'bookmark.save', 'bookmark.delete', 'settings.patch', 'quota.refresh', 'open.link', 'ui.detach', 'translate', 'translation.clear', 'library.save', 'library.delete', 'assist', 'mobile', 'resource.reveal', 'timer.command'];
 const ID = /^[A-Za-z0-9_.:-]{1,128}$/;
 // A 100,000-character note may expand to six JSON characters per source character.
 const MAX_REQUEST_LENGTH = 700000;

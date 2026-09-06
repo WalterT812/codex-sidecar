@@ -12,6 +12,15 @@ async function fixture(t: test.TestContext) {
   return join(dir, 'state.json');
 }
 
+test('study timer persists across reload and rejects stale controls from another window',async t=>{
+ const path=await fixture(t),store=await StateStore.open(path);
+ await store.mutate('timer.command',{revision:0,command:{op:'add',title:'Study',minutes:25,kind:'study'}});
+ await store.mutate('timer.command',{revision:1,command:{op:'start'}});
+ const restored=await StateStore.open(path);assert.equal(restored.snapshot.timer?.current?.title,'Study');assert.equal(restored.snapshot.timer?.current?.status,'running');assert.ok(restored.snapshot.timer?.current?.endsAt);
+ await assert.rejects(store.mutate('timer.command',{revision:1,command:{op:'pause'}}));assert.equal(store.snapshot.timer?.current?.status,'running');
+ await store.mutate('timer.command',{revision:2,command:{op:'pause'}});assert.equal(store.snapshot.timer?.current?.status,'paused');assert.equal(store.snapshot.timer?.current?.endsAt,null);
+});
+
 test('theme preference survives reload without altering notes or other component settings', async t => {
   const path = await fixture(t); const store = await StateStore.open(path);
   await store.mutate('note.save', { revision: 0, title: 'Keep', body: 'Keep this note' });

@@ -1,3 +1,4 @@
+import {createStudyTimer} from './study-timer.js';
 import type {Action,Appearance,HostMessage,StoredState,ToolRecord} from '../shared/types.js';
 import type {MessageAnchor} from '../shared/anchors.js';
 import {UUID} from '../shared/anchors.js';
@@ -11,7 +12,7 @@ import {createNativeAccess} from './native.js';
 import {createSourceNavigator,sourceMessages,selectedSource} from './sources.js';
 
 type Result=Extract<HostMessage,{type:'result'}>;
-const titles={tools:'工具箱',outline:'对话目录',search:'找回原文',snippets:'常用片段',resume:'接着聊',inbox:'工作收件箱',decisions:'当前决定',learning:'学习桌',resources:'软件与成果',ideas:'随手记',appearance:'外观',voice:'语音输入',mobile:'手机入口'};
+const titles={tools:'工具箱',timer:'学习计时',outline:'对话目录',search:'找回原文',snippets:'常用片段',resume:'接着聊',inbox:'工作收件箱',decisions:'当前决定',learning:'学习桌',resources:'软件与成果',ideas:'随手记',appearance:'外观',voice:'语音输入',mobile:'手机入口'};
 type Kind=keyof typeof titles;
 // Mobile use has moved to official Remote. Keep the optional bridge and data,
 // but do not offer or restore the retired pairing panel in the desktop UI.
@@ -57,6 +58,7 @@ export function createPersonalTools(win:Window,openTranslation:(text:string)=>vo
   });
  }
  const save=(action:Action,payload:Record<string,unknown>)=>{if(!state)return Promise.reject(Error('正在连接'));return request(action,{...payload,revision:state.revision});};
+ const studyTimer=createStudyTimer(win,command=>save('timer.command',{command}),()=>{appearance.setFocus(false);open('timer');});shadow.append(studyTimer.style,studyTimer.badge);
  function tell(panel:Panel,message:string) {panel.status.textContent=message;panel.status.hidden=!message;}
  function act(panel:Panel,fn:()=>Promise<unknown>) {tell(panel,'');void fn().catch(e=>tell(panel,e instanceof Error?e.message:String(e)));}
  function control(label:string,fn:()=>void){const b=button(doc,label,'personal-'+label);b.onclick=fn;return b;}
@@ -74,14 +76,15 @@ export function createPersonalTools(win:Window,openTranslation:(text:string)=>vo
   drawer.addEventListener('keydown',e=>{if(e.key==='Escape'){e.stopPropagation();drawer.hidden=true;remember();}});return panel;
  }
  const views=new Map<Panel,Map<string,{nodes:Node[];refresh?:()=>void}>>();
- function activatePanel(p:Panel,next:string){if(p.scope===next)return;let cache=views.get(p);if(!cache){cache=new Map();views.set(p,cache);}cache.set(p.scope,{nodes:[...p.body.childNodes],refresh:p.refresh});while(cache.size>30)cache.delete(cache.keys().next().value!);const saved=cache.get(next);p.scope=next;p.body.replaceChildren(...saved?.nodes??[]);p.refresh=saved?.refresh;}
- function open(kind:Kind='tools') {if(!visibleTool(kind))return;const p=make(kind);activatePanel(p,scope);p.drawer.hidden=false;p.drawer.style.zIndex=String(++layer);host.style.zIndex=String(layer);if(!p.body.childNodes.length)render(kind,p);remember();}
+ function activatePanel(p:Panel,next:string){if(p.drawer.dataset.tool==='timer'){p.scope=next;return;}if(p.scope===next)return;let cache=views.get(p);if(!cache){cache=new Map();views.set(p,cache);}cache.set(p.scope,{nodes:[...p.body.childNodes],refresh:p.refresh});while(cache.size>30)cache.delete(cache.keys().next().value!);const saved=cache.get(next);p.scope=next;p.body.replaceChildren(...saved?.nodes??[]);p.refresh=saved?.refresh;}
+ function open(kind:Kind='tools') {if(!visibleTool(kind))return;const p=make(kind);activatePanel(p,scope);p.drawer.hidden=false;p.drawer.style.zIndex=String(++layer);host.style.zIndex=String(layer);if(!p.body.childNodes.length)render(kind,p);if(kind==='timer')p.body.scrollTop=0;remember();}
  function render(kind:Kind,p:Panel) {
   p.body.replaceChildren();tell(p,'');p.refresh=undefined;
   if(kind==='tools') {
    p.body.append(element(doc,'p','help','每个工具都能独立打开。窗口布局随当前对话保存。'));
    const grid=element(doc,'div','tool-grid');for(const key of Object.keys(titles) as Kind[])if(key!=='tools'&&visibleTool(key))grid.append(control(titles[key],()=>open(key)));grid.append(control('专注模式',()=>appearance.setFocus(true)));p.body.append(grid);return;
   }
+  if(kind==='timer'){p.body.append(studyTimer.element);return;}
   if(kind==='appearance'){renderAppearance(p);return;}
   if(kind==='voice'){renderVoice(p);return;}
   if(kind==='mobile'){renderMobile(p);return;}
@@ -202,7 +205,7 @@ export function createPersonalTools(win:Window,openTranslation:(text:string)=>vo
  for(const kind of openByScope.get(scope)??[])open(kind);
  return {
   open,navigate:navigator.go,captureBookmark,
-  receive(message:HostMessage){if(message.type==='result'){const operation=pending.get(message.id);if(operation){pending.delete(message.id);win.clearTimeout(operation.timer);if(message.ok)operation.resolve(message);else operation.reject(Error(message.error??'操作失败'));}}else{const changed=state?.revision!==message.state.revision;state=message.state;refreshBookmarkButtons();if(changed)appearance.apply(state.settings.appearance);if(changed)for(const p of panels.values())p.refresh?.();}},
-  destroy(){if(disposed)return;disposed=true;remember();win.clearInterval(interval);for(const operation of pending.values()){win.clearTimeout(operation.timer);operation.reject(Error('Sidecar 已断开'));}pending.clear();doc.removeEventListener('mouseup',selectionChanged);doc.removeEventListener('keyup',selectionChanged);doc.removeEventListener('mouseover',hover);doc.removeEventListener('scroll',onScroll,true);for(const panel of panels.values())panel.frame.destroy();navigator.destroy();appearance.destroy();host.remove();},
+  receive(message:HostMessage){if(message.type==='result'){const operation=pending.get(message.id);if(operation){pending.delete(message.id);win.clearTimeout(operation.timer);if(message.ok)operation.resolve(message);else operation.reject(Error(message.error??'操作失败'));}}else{const changed=state?.revision!==message.state.revision;state=message.state;studyTimer.receive(state.timer);refreshBookmarkButtons();if(changed)appearance.apply(state.settings.appearance);if(changed)for(const p of panels.values())p.refresh?.();}},
+  destroy(){if(disposed)return;disposed=true;remember();win.clearInterval(interval);for(const operation of pending.values()){win.clearTimeout(operation.timer);operation.reject(Error('Sidecar 已断开'));}pending.clear();doc.removeEventListener('mouseup',selectionChanged);doc.removeEventListener('keyup',selectionChanged);doc.removeEventListener('mouseover',hover);doc.removeEventListener('scroll',onScroll,true);for(const panel of panels.values())panel.frame.destroy();studyTimer.destroy();navigator.destroy();appearance.destroy();host.remove();},
  };
 }

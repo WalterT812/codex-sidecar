@@ -1,3 +1,4 @@
+import {validateTimer,timerCommand,changeTimer,type TimerCommand} from './shared/timer.js';
 import {validateAnchor,type MessageAnchor} from './shared/anchors.js';
 import { randomUUID } from 'node:crypto';
 import { mkdir, open, readFile, rename, rm } from 'node:fs/promises';
@@ -7,9 +8,9 @@ import type { Bookmark, Note, Settings, StoredState, TranslationRecord, ToolReco
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_STORE_BYTES = 2000000;
 const COMPONENTS = ['quota', 'notes', 'bookmarks', 'artwork', 'theme', 'motion', 'translation', 'workspaces'] as const;
-const MUTATIONS = ['note.save', 'note.delete', 'bookmark.save', 'bookmark.delete', 'settings.patch', 'translation.clear', 'library.save', 'library.delete'] as const;
+const MUTATIONS = ['note.save', 'note.delete', 'bookmark.save', 'bookmark.delete', 'settings.patch', 'translation.clear', 'library.save', 'library.delete', 'timer.command'] as const;
 type MutationAction = typeof MUTATIONS[number];
-type PreparedMutation = { action: MutationAction; revision: number; id?: string; title?: string; body?: string; threadUrl?: string; url?: string; excerpt?: string; source?:MessageAnchor; library?: Omit<ToolRecord,'id'|'createdAt'|'updatedAt'>; settings?: Partial<Omit<Settings, 'enabled'>> & { enabled?: Partial<Settings['enabled']> } };
+type PreparedMutation = { action: MutationAction; revision: number; id?: string; title?: string; body?: string; threadUrl?: string; url?: string; excerpt?: string; source?:MessageAnchor; timerCommand?:TimerCommand; library?: Omit<ToolRecord,'id'|'createdAt'|'updatedAt'>; settings?: Partial<Omit<Settings, 'enabled'>> & { enabled?: Partial<Settings['enabled']> } };
 
 function record(value: unknown, label: string, allowed: readonly string[], required: readonly string[] = []): Record<string, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${label} must be an object`);
@@ -87,7 +88,7 @@ function validateLibrary(value:unknown,savedId:(value:unknown)=>string):ToolReco
 }
 
 function validateState(value: unknown): StoredState {
-  const state = record(value, 'state', ['version', 'revision', 'settings', 'notes', 'bookmarks', 'translations', 'library'], ['version', 'revision', 'settings', 'notes', 'bookmarks']);
+  const state = record(value, 'state', ['version', 'revision', 'settings', 'notes', 'bookmarks', 'translations', 'library', 'timer'], ['version', 'revision', 'settings', 'notes', 'bookmarks']);
   if (state.version !== 1) throw new Error('Unsupported state version');
   const settings = record(state.settings, 'settings', ['locale', 'enabled', 'panelPinned', 'appearance'], ['locale', 'enabled', 'panelPinned']);
   const enabled = record(settings.enabled, 'enabled', COMPONENTS, ['quota', 'notes', 'bookmarks']);
@@ -123,7 +124,7 @@ function validateState(value: unknown): StoredState {
     });
   }
   for(const key of ['artwork','theme','motion','translation','workspaces'] as const) if(Object.hasOwn(enabled,key))optional[key]=boolean(enabled[key],`enabled.${key}`);
-  return { version: 1, revision: revision(state.revision), settings: { locale: locale(settings.locale), panelPinned: boolean(settings.panelPinned, 'panelPinned'), ...(settings.appearance!==undefined?{appearance:appearance(settings.appearance)}:{}), enabled: { quota: boolean(enabled.quota, 'enabled.quota'), notes: boolean(enabled.notes, 'enabled.notes'), bookmarks: boolean(enabled.bookmarks, 'enabled.bookmarks'), ...optional } }, notes, bookmarks, ...(translations?{translations}:{}), ...(state.library!==undefined?{library:validateLibrary(state.library,savedId)}:{}) };
+  return { version: 1, revision: revision(state.revision), settings: { locale: locale(settings.locale), panelPinned: boolean(settings.panelPinned, 'panelPinned'), ...(settings.appearance!==undefined?{appearance:appearance(settings.appearance)}:{}), enabled: { quota: boolean(enabled.quota, 'enabled.quota'), notes: boolean(enabled.notes, 'enabled.notes'), bookmarks: boolean(enabled.bookmarks, 'enabled.bookmarks'), ...optional } }, notes, bookmarks, ...(translations?{translations}:{}), ...(state.timer!==undefined?{timer:validateTimer(state.timer)}:{}), ...(state.library!==undefined?{library:validateLibrary(state.library,savedId)}:{}) };
 }
 
 function prepareMutation(action: string, input: unknown): PreparedMutation {
@@ -132,7 +133,7 @@ function prepareMutation(action: string, input: unknown): PreparedMutation {
     'note.save': ['revision', 'id', 'title', 'body', 'threadUrl'], 'note.delete': ['revision', 'id'],
     'bookmark.save': ['revision', 'id', 'title', 'url', 'excerpt', 'source'], 'bookmark.delete': ['revision', 'id'],
     'settings.patch': ['revision', 'enabled', 'locale', 'panelPinned', 'appearance'],
-    'translation.clear':['revision'],
+    'translation.clear':['revision'], 'timer.command':['revision','command'],
     'library.save':['revision','id','kind','title','body','status','source','details'], 'library.delete':['revision','id'],
   };
   const typedAction = action as MutationAction;
@@ -140,7 +141,7 @@ function prepareMutation(action: string, input: unknown): PreparedMutation {
   const prepared: PreparedMutation = { action: typedAction, revision: revision(payload.revision) };
   if (Object.hasOwn(payload, 'id')) prepared.id = identifier(payload.id);
   if (action.endsWith('.delete') && !prepared.id) throw new Error('id is required');
-  if (action === 'note.save') {
+  if (action === 'timer.command') { prepared.timerCommand=timerCommand(payload.command); } else if (action === 'note.save') {
     prepared.title = string(payload.title, 'title', 200); prepared.body = string(payload.body, 'body', 100000);
     if (Object.hasOwn(payload, 'threadUrl')) prepared.threadUrl = validateLink(payload.threadUrl);
   } else if (action === 'library.save') {
@@ -161,6 +162,7 @@ function prepareMutation(action: string, input: unknown): PreparedMutation {
 }
 
 function applyMutation(state: StoredState, change: PreparedMutation): void {
+  if(change.action==='timer.command'){state.timer=changeTimer(state.timer,change.timerCommand!,Date.now(),randomUUID());return;}
   if(change.action==='translation.clear'){state.translations=[];return;}
   const now = new Date().toISOString();
   if(change.action.startsWith('library.')) {

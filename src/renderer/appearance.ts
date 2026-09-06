@@ -11,7 +11,8 @@ export function createAppearance(win:Window) {
 ${root} [data-markdown-text-tone="user-message"],${root} [data-markdown-text-style="assistant-message"],${root} [data-codex-composer="true"]{font-family:${font}!important;font-size:${a.size}px!important;line-height:${a.lineHeight}!important;}
 ${root} :is([data-markdown-text-tone="user-message"],[data-markdown-text-style="assistant-message"],[data-codex-composer="true"]) :is(p,li){font-size:inherit!important;line-height:inherit!important;}
 [data-sidecar-source-highlight="true"]{outline:2px solid #b69b67!important;outline-offset:6px!important;border-radius:14px!important;}
-:root[data-sidecar-focus="true"] [data-app-shell-left-panel-appearance],:root[data-sidecar-focus="true"] [data-pip-obstacle="thread-summary-panel"],:root[data-sidecar-focus="true"] [id^="codex-sidecar-root"],:root[data-sidecar-focus="true"] #codex-sidecar-personal-tools{display:none!important;}
+:root[data-sidecar-focus="true"] [data-app-shell-left-panel-appearance],:root[data-sidecar-focus="true"] [data-pip-obstacle="thread-summary-panel"],:root[data-sidecar-focus="true"] [id^="codex-sidecar-root"]{display:none!important;}
+:root[data-sidecar-focus="true"] #codex-sidecar-personal-tools{visibility:hidden!important;}
 :root[data-sidecar-focus="true"] [data-app-shell-main-surface="default"]{background-image:none!important;}
 `;
  }

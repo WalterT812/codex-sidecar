@@ -1,5 +1,27 @@
 # Component development
 
+## Study timer (alpha.20)
+
+Open **＋ → 学习计时**. Add named study or break blocks with 1–180 minutes
+each (up to 30 queued blocks); reorder or remove upcoming blocks. Start, pause,
+resume or finish the current block explicitly. Expiry never starts the next
+block automatically. The floating panel retains the existing drag/resize behavior.
+
+The timer plan is shared across desktop windows in the revision-checked local
+store. A persisted deadline drives elapsed time, so navigation, sleeping and
+reopening do not restart the countdown. A small badge remains available when
+the panel is closed or focus mode is active. Clicking it opens the timer.
+Expiry leaves a visible notice. Sound is a best-effort two-note Web Audio chime
+armed by user interaction, played in an eligible visible window and deduplicated
+across windows; it depends on audio permissions and system volume. No OS alarm
+is scheduled while Sidecar is closed. Reopening shows an overdue block as ended.
+
+Acceptance: 155 tests passed, including clock recovery, pause/resume, queue edits,
+stale-window rejection and persistence. A real Chromium flow exercised three
+blocks, pause/resume, badge reopening, focus mode visibility, expiry and explicit
+advance to the break, with no page errors. Alpha.20's empty timer was opened in
+the live Codex desktop; no real study timer was started during acceptance.
+
 The host sends `HostMessage` snapshots and action results, defined in `src/shared/types.ts`. UI sends only allowed `BridgeRequest` actions via the main-frame binding. No arbitrary shell/HTTP/model bridge is exposed.
 
 Each renderer owns one Shadow DOM root. Keep component state inside it and register listeners with cleanup. `window.__CODEX_SIDECAR__.destroy()` must remove every node, timer, observer, and listener it introduced. Native controls and React internals are not component state.
