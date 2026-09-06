@@ -1,3 +1,4 @@
+import {validateShortcuts} from './shared/tools.js';
 import {validateTimer,timerCommand,changeTimer,type TimerCommand} from './shared/timer.js';
 import {validateAnchor,type MessageAnchor} from './shared/anchors.js';
 import { randomUUID } from 'node:crypto';
@@ -90,7 +91,7 @@ function validateLibrary(value:unknown,savedId:(value:unknown)=>string):ToolReco
 function validateState(value: unknown): StoredState {
   const state = record(value, 'state', ['version', 'revision', 'settings', 'notes', 'bookmarks', 'translations', 'library', 'timer'], ['version', 'revision', 'settings', 'notes', 'bookmarks']);
   if (state.version !== 1) throw new Error('Unsupported state version');
-  const settings = record(state.settings, 'settings', ['locale', 'enabled', 'panelPinned', 'appearance'], ['locale', 'enabled', 'panelPinned']);
+  const settings = record(state.settings, 'settings', ['locale', 'enabled', 'panelPinned', 'appearance', 'shortcuts'], ['locale', 'enabled', 'panelPinned']);
   const enabled = record(settings.enabled, 'enabled', COMPONENTS, ['quota', 'notes', 'bookmarks']);
   const ids = new Set<string>();
   function savedId(value: unknown): string {
@@ -124,7 +125,7 @@ function validateState(value: unknown): StoredState {
     });
   }
   for(const key of ['artwork','theme','motion','translation','workspaces'] as const) if(Object.hasOwn(enabled,key))optional[key]=boolean(enabled[key],`enabled.${key}`);
-  return { version: 1, revision: revision(state.revision), settings: { locale: locale(settings.locale), panelPinned: boolean(settings.panelPinned, 'panelPinned'), ...(settings.appearance!==undefined?{appearance:appearance(settings.appearance)}:{}), enabled: { quota: boolean(enabled.quota, 'enabled.quota'), notes: boolean(enabled.notes, 'enabled.notes'), bookmarks: boolean(enabled.bookmarks, 'enabled.bookmarks'), ...optional } }, notes, bookmarks, ...(translations?{translations}:{}), ...(state.timer!==undefined?{timer:validateTimer(state.timer)}:{}), ...(state.library!==undefined?{library:validateLibrary(state.library,savedId)}:{}) };
+  return { version: 1, revision: revision(state.revision), settings: { locale: locale(settings.locale), panelPinned: boolean(settings.panelPinned, 'panelPinned'), ...(settings.shortcuts!==undefined?{shortcuts:validateShortcuts(settings.shortcuts)}:{}), ...(settings.appearance!==undefined?{appearance:appearance(settings.appearance)}:{}), enabled: { quota: boolean(enabled.quota, 'enabled.quota'), notes: boolean(enabled.notes, 'enabled.notes'), bookmarks: boolean(enabled.bookmarks, 'enabled.bookmarks'), ...optional } }, notes, bookmarks, ...(translations?{translations}:{}), ...(state.timer!==undefined?{timer:validateTimer(state.timer)}:{}), ...(state.library!==undefined?{library:validateLibrary(state.library,savedId)}:{}) };
 }
 
 function prepareMutation(action: string, input: unknown): PreparedMutation {
@@ -132,7 +133,7 @@ function prepareMutation(action: string, input: unknown): PreparedMutation {
   const keys: Record<MutationAction, readonly string[]> = {
     'note.save': ['revision', 'id', 'title', 'body', 'threadUrl'], 'note.delete': ['revision', 'id'],
     'bookmark.save': ['revision', 'id', 'title', 'url', 'excerpt', 'source'], 'bookmark.delete': ['revision', 'id'],
-    'settings.patch': ['revision', 'enabled', 'locale', 'panelPinned', 'appearance'],
+    'settings.patch': ['revision', 'enabled', 'locale', 'panelPinned', 'appearance', 'shortcuts'],
     'translation.clear':['revision'], 'timer.command':['revision','command'],
     'library.save':['revision','id','kind','title','body','status','source','details'], 'library.delete':['revision','id'],
   };
@@ -151,6 +152,7 @@ function prepareMutation(action: string, input: unknown): PreparedMutation {
   } else if (action === 'settings.patch') {
     prepared.settings = {};
     if(payload.appearance!==undefined)prepared.settings.appearance=appearance(payload.appearance);
+    if(payload.shortcuts!==undefined)prepared.settings.shortcuts=validateShortcuts(payload.shortcuts);
     if (Object.hasOwn(payload, 'locale')) prepared.settings.locale = locale(payload.locale);
     if (Object.hasOwn(payload, 'panelPinned')) prepared.settings.panelPinned = boolean(payload.panelPinned, 'panelPinned');
     if (Object.hasOwn(payload, 'enabled')) {

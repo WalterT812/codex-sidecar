@@ -55,6 +55,21 @@ test('mount is idempotent, handshake is sent, and destroy leaves native content 
   } finally { app.close(); }
 });
 
+test('grouped tools pin independently, launch from the rail, and unpin on a shared snapshot',()=>{
+ const app=setup();try{
+  app.query('rail-tools').click();const personal=app.win.document.getElementById('codex-sidecar-personal-tools')!.shadowRoot!;
+  assert.deepEqual([...personal.querySelectorAll('.tool-group-title')].map(n=>n.textContent),['学习与专注','对话与回顾','记录与资料','外观与输入']);
+  assert.equal(personal.querySelector('[data-testid="personal-手机入口"]'),null);
+  const pin=personal.querySelector<HTMLButtonElement>('[data-testid="pin-tool-timer"]')!;pin.click();pin.click();
+  const request=app.requests.at(-1)!;assert.equal(request.action,'settings.patch');assert.deepEqual(request.payload,{shortcuts:['timer'],revision:7});
+  assert.equal(personal.querySelector('[data-tool="timer"]'),null);
+  const state=makeState();state.revision=8;state.settings.shortcuts=['timer'];app.api.receive({type:'snapshot',state,quota:unknownQuota()});app.api.receive({type:'result',id:request.id,ok:true});
+  assert.equal(pin.getAttribute('aria-pressed'),'true');app.query('rail-shortcut-timer').click();assert.equal((personal.querySelector('[data-tool="timer"]') as HTMLElement).hidden,false);
+  const unpinned=structuredClone(state);unpinned.revision=9;unpinned.settings.shortcuts=[];app.api.receive({type:'snapshot',state:unpinned,quota:unknownQuota()});assert.equal(app.shadow!.querySelector('[data-testid="rail-shortcut-timer"]'),null);assert.equal(pin.getAttribute('aria-pressed'),'false');
+  assert.ok(app.query('rail-bookmarks'));assert.ok(app.query('rail-tools'));
+ }finally{app.close();}
+});
+
 test('quota shows the shared Codex week first and never substitutes Spark or unknown model pools', () => {
   const makeWindow = (id: string, minutes: number, remaining: number | null) => ({ id, label: id.startsWith('codex:') ? 'Codex' : 'GPT-5.3-Codex-Spark', usedPercent: remaining === null ? null : 100 - remaining, remainingPercent: remaining, windowDurationMins: minutes, resetsAt: null });
   const quota: QuotaSnapshot = { fetchedAt: new Date().toISOString(), windows: [makeWindow('codex_bengalfox:primary', 300, 100), makeWindow('codex_bengalfox:secondary', 10080, 100), makeWindow('codex:primary', 300, 70), makeWindow('codex:secondary', 10080, 38)] };

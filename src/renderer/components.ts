@@ -8,8 +8,19 @@ export function element<K extends keyof HTMLElementTagNameMap>(
   return node;
 }
 
-export type IconName = 'spark' | 'note' | 'bookmark' | 'settings' | 'close' | 'pin' | 'plus' | 'back' | 'refresh' | 'arrow' | 'trash' | 'translate';
+export type IconName = 'spark' | 'note' | 'bookmark' | 'settings' | 'close' | 'pin' | 'plus' | 'back' | 'refresh' | 'arrow' | 'trash' | 'translate' | 'clock' | 'book' | 'focus' | 'list' | 'search' | 'resume' | 'layers' | 'check' | 'folder' | 'inbox' | 'mic';
 const paths: Record<IconName, string[]> = {
+  clock:['M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18','M12 7v5l3 2'],
+  book:['M12 5v15','M12 5C9 3 5 3 3 4v15c3-1 6-1 9 1 3-2 6-2 9-1V4c-3-1-6-1-9 1Z'],
+  focus:['M8 3H3v5','M16 3h5v5','M3 16v5h5','M21 16v5h-5','M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8'],
+  list:['M9 6h12','M9 12h12','M9 18h12','M3 6h1','M3 12h1','M3 18h1'],
+  search:['M10 3a7 7 0 1 0 0 14 7 7 0 0 0 0-14','m15 15 6 6'],
+  resume:['M4 4v6h6','M4 10a8 8 0 1 1 1 8','m11 8 5 4-5 4Z'],
+  layers:['m12 3 10 5-10 5L2 8Z','m2 12 10 5 10-5','m2 16 10 5 10-5'],
+  check:['M20 11v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9','m9 11 3 3 9-10'],
+  folder:['M3 6h7l2 3h9v11H3Z','M3 6V4h7l2 2h9v3'],
+  inbox:['M3 13 6 4h12l3 9v7H3Z','M3 13h5l2 3h4l2-3h5'],
+  mic:['M9 5a3 3 0 0 1 6 0v7a3 3 0 0 1-6 0Z','M6 10v2a6 6 0 0 0 12 0v-2','M12 18v4','M8 22h8'],
   translate: ['M3 5h12','M9 3v2','M6 5c0 6 3 9 7 11','M12 5c0 6-4 10-9 13','m14 21 4-11 4 11','M16 17h4'],
   spark: ['M12 2c2 6 4 8 10 10-6 2-8 4-10 10C10 16 8 14 2 12c6-2 8-4 10-10Z', 'M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6'],
   note: ['M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Z', 'M14 3v6h6', 'M8 13h8', 'M8 17h5'],

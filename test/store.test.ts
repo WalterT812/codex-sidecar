@@ -12,6 +12,14 @@ async function fixture(t: test.TestContext) {
   return join(dir, 'state.json');
 }
 
+test('desktop shortcut choices preserve order on reload and reject hidden or duplicate tools',async t=>{
+ const path=await fixture(t),store=await StateStore.open(path);
+ await store.mutate('settings.patch',{revision:0,shortcuts:['timer','outline','focus']});
+ const restored=await StateStore.open(path);assert.deepEqual(restored.snapshot.settings.shortcuts,['timer','outline','focus']);
+ for(const shortcuts of [['mobile'],['timer','timer'],['__proto__'],'timer'])await assert.rejects(store.mutate('settings.patch',{revision:1,shortcuts}));
+ await store.mutate('settings.patch',{revision:1,shortcuts:[]});assert.deepEqual(store.snapshot.settings.shortcuts,[]);
+});
+
 test('study timer persists across reload and rejects stale controls from another window',async t=>{
  const path=await fixture(t),store=await StateStore.open(path);
  await store.mutate('timer.command',{revision:0,command:{op:'add',title:'Study',minutes:25,kind:'study'}});

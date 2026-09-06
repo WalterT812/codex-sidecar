@@ -1,3 +1,4 @@
+import {desktopTools,toolGroups,type ShortcutTool} from '../shared/tools.js';
 import {createStudyTimer} from './study-timer.js';
 import type {Action,Appearance,HostMessage,StoredState,ToolRecord} from '../shared/types.js';
 import type {MessageAnchor} from '../shared/anchors.js';
@@ -77,12 +78,11 @@ export function createPersonalTools(win:Window,openTranslation:(text:string)=>vo
  }
  const views=new Map<Panel,Map<string,{nodes:Node[];refresh?:()=>void}>>();
  function activatePanel(p:Panel,next:string){if(p.drawer.dataset.tool==='timer'){p.scope=next;return;}if(p.scope===next)return;let cache=views.get(p);if(!cache){cache=new Map();views.set(p,cache);}cache.set(p.scope,{nodes:[...p.body.childNodes],refresh:p.refresh});while(cache.size>30)cache.delete(cache.keys().next().value!);const saved=cache.get(next);p.scope=next;p.body.replaceChildren(...saved?.nodes??[]);p.refresh=saved?.refresh;}
- function open(kind:Kind='tools') {if(!visibleTool(kind))return;const p=make(kind);activatePanel(p,scope);p.drawer.hidden=false;p.drawer.style.zIndex=String(++layer);host.style.zIndex=String(layer);if(!p.body.childNodes.length)render(kind,p);if(kind==='timer')p.body.scrollTop=0;remember();}
+ function open(kind:Kind|ShortcutTool='tools') {if(kind==='focus'){appearance.setFocus(true);return;}if(!visibleTool(kind))return;const p=make(kind);activatePanel(p,scope);p.drawer.hidden=false;p.drawer.style.zIndex=String(++layer);host.style.zIndex=String(layer);if(!p.body.childNodes.length)render(kind,p);if(kind==='timer')p.body.scrollTop=0;remember();}
  function render(kind:Kind,p:Panel) {
   p.body.replaceChildren();tell(p,'');p.refresh=undefined;
   if(kind==='tools') {
-   p.body.append(element(doc,'p','help','每个工具都能独立打开。窗口布局随当前对话保存。'));
-   const grid=element(doc,'div','tool-grid');for(const key of Object.keys(titles) as Kind[])if(key!=='tools'&&visibleTool(key))grid.append(control(titles[key],()=>open(key)));grid.append(control('专注模式',()=>appearance.setFocus(true)));p.body.append(grid);return;
+   renderToolbox(p);return;
   }
   if(kind==='timer'){p.body.append(studyTimer.element);return;}
   if(kind==='appearance'){renderAppearance(p);return;}
@@ -100,6 +100,17 @@ export function createPersonalTools(win:Window,openTranslation:(text:string)=>vo
   const status=element(doc,'p','source-text','正在读取连接状态…'),code=element(doc,'p','source-text');p.body.append(status,code);
   act(p,async()=>{const result=await request('mobile',{action:'status'}),data=result.data as any;status.textContent=data?.configured?data.url+'\n'+(data.online?'桌面已连接':data.error||'正在连接'):'尚未配置服务器连接';});
   p.body.append(control('生成手机配对码',()=>act(p,async()=>{const result=await request('mobile',{action:'pair'}),data=result.data as any;if(!data?.code)throw Error('先配置服务器连接');code.textContent=data.code;const link=data.url+'#pair='+data.code;p.body.append(control('复制配对链接',()=>act(p,()=>win.navigator.clipboard.writeText(link))));tell(p,'手机打开入口后输入此码。不要公开配对链接。');})),control('撤销所有手机登录',()=>act(p,async()=>{await request('mobile',{action:'revoke'});code.textContent='';tell(p,'所有手机登录已撤销。');})));
+ }
+ function renderToolbox(p:Panel){
+  p.body.append(element(doc,'p','help','点击名称打开工具；点图钉加入右下角快捷栏。快捷栏选择会保存，并同步到其他窗口。'));
+  const css=element(doc,'style');css.textContent=`.tool-group{margin:0 0 20px}.tool-group:last-child{margin-bottom:0}.tool-group-title{display:flex;align-items:center;gap:9px;color:#725c7e;font-size:12px;font-weight:600;margin:0 0 9px}.tool-group-title::after{content:'';height:1px;background:#e5dce9;flex:1}.tool-entry{display:flex;align-items:center;min-width:0;padding:4px;background:#fffdfb;border:1px solid #dfd4e4;border-radius:15px}.tool-entry:hover{background:#f3edf7;border-color:#cab7d5}.tool-entry .tool-launch{flex:1;min-width:0;display:flex;align-items:center;gap:7px;padding:8px 4px 8px 7px;border:0;background:transparent;font-size:12px;text-align:left;min-height:36px}.tool-launch .icon{width:16px;height:16px;color:#886b99}.tool-entry .tool-pin{flex:none;width:28px;height:30px;min-height:30px;padding:5px;border-radius:10px;color:#a295aa;background:transparent}.tool-entry .tool-pin[aria-pressed=true]{background:#e9deef;color:#573367}.tool-pin .icon{width:15px;height:15px}.tool-pin:hover{background:#eee6f3}.tool-entry:has(.tool-pin[aria-pressed=true]){border-color:#cbb8d7}`;p.body.append(css);
+  const pins=new Map<ShortcutTool,HTMLButtonElement>();const pendingPins=new Set<ShortcutTool>();
+  const refresh=()=>{for(const [key,pin]of pins){const saved=state?.settings.shortcuts?.includes(key)??false;pin.setAttribute('aria-pressed',String(saved));pin.title=(saved?'移出快捷栏：':'加入快捷栏：')+desktopTools[key].title;pin.setAttribute('aria-label',pin.title);pin.disabled=!state||pendingPins.has(key);}};
+  for(const group of toolGroups){const section=element(doc,'section','tool-group'),heading=element(doc,'h2','tool-group-title',group.title),grid=element(doc,'div','tool-grid');section.setAttribute('aria-label',group.title);section.append(heading,grid);
+   for(const key of group.tools){const info=desktopTools[key],entry=element(doc,'div','tool-entry'),launch=button(doc,info.title,'personal-'+info.title,info.icon,'tool-launch'),pin=button(doc,'加入快捷栏：'+info.title,'pin-tool-'+key,'pin','icon-button tool-pin');launch.onclick=()=>open(key);pins.set(key,pin);
+    pin.onclick=()=>{if(!state||pendingPins.has(key))return;const selected=state.settings.shortcuts??[],shortcuts=selected.includes(key)?selected.filter(k=>k!==key):[...selected,key];pendingPins.add(key);refresh();act(p,async()=>{try{await save('settings.patch',{shortcuts});}finally{pendingPins.delete(key);refresh();}});};entry.append(launch,pin);grid.append(entry);
+   }p.body.append(section);
+  }p.refresh=refresh;refresh();
  }
  function renderAppearance(p:Panel) {
   let draft={...defaultAppearance,...state?.settings.appearance};p.body.append(element(doc,'p','help','拖动即可预览。保存后同步到所有 Codex 窗口；关闭面板前可恢复已保存的设置。'));

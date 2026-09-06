@@ -1,3 +1,4 @@
+import {desktopTools,type ShortcutTool} from '../shared/tools.js';
 import {createPersonalTools} from './personal-tools.js';
 import {createMobileAccess} from './mobile.js';
 import type {MessageAnchor} from '../shared/anchors.js';
@@ -45,7 +46,7 @@ function nativeAnchor(win: Window): HTMLElement | null {
 }
 
 interface PanelApi extends SidecarApi { show(view?:View):void;setTranslation(text:string):void;activate(scope:string,open:boolean,inherit?:boolean):void }
-interface PanelOptions { tools?:()=>void; source?:(anchor:MessageAnchor)=>Promise<void>; tool?:'bookmarks'|'translation'; openTool?:(kind:'notes'|'bookmarks'|'translation')=>void; front?:()=>number;visibility?:(open:boolean)=>void }
+interface PanelOptions { launch?:(tool:ShortcutTool)=>void; tools?:()=>void; source?:(anchor:MessageAnchor)=>Promise<void>; tool?:'bookmarks'|'translation'; openTool?:(kind:'notes'|'bookmarks'|'translation')=>void; front?:()=>number;visibility?:(open:boolean)=>void }
 /** One bridge receiver owns all tool windows; each window keeps its own draft. */
 export function mountSidecar(win:Window):SidecarApi|null{
  win.__CODEX_SIDECAR__?.destroy();
@@ -57,7 +58,7 @@ export function mountSidecar(win:Window):SidecarApi|null{
   return panel;
  };
  const openTool=(kind:ToolKind)=>{layouts.check();if(kind==='notes')primary?.show('notes');else ensure(kind)?.show();};
- const primary=mountPanel(win,{openTool,front,tools:()=>personal.open(),source:anchor=>personal.navigate(anchor),visibility:value=>layouts.setOpen('notes',value)});if(!primary)return null;
+ const primary=mountPanel(win,{openTool,front,launch:tool=>personal.open(tool),tools:()=>personal.open(),source:anchor=>personal.navigate(anchor),visibility:value=>layouts.setOpen('notes',value)});if(!primary)return null;
  const layouts=createConversationLayouts(win,scope=>{
   primary.activate(scope,layouts.isOpen('notes'));
   for(const kind of ['bookmarks','translation'] as const){const panel=panels.get(kind);if(panel)panel.activate(scope,layouts.isOpen(kind));else if(layouts.isOpen(kind))ensure(kind);}
@@ -165,6 +166,8 @@ function mountPanel(win:Window,options:PanelOptions):PanelApi|null {
     const tool=button(document,kind==='notes'?'便签':kind==='bookmarks'?'收藏':'翻译',`rail-${kind}`,kind==='notes'?'note':kind==='bookmarks'?'bookmark':'translate','icon-button');
     tool.onclick=()=>options.openTool?.(kind);rail.append(tool);
   }
+  const shortcuts=element(document,'span','rail-shortcuts');rail.append(shortcuts);let shortcutSignature='';
+  function renderShortcuts(){if(options.tool)return;const selected=state?.settings.shortcuts??[],signature=JSON.stringify(selected);if(signature===shortcutSignature)return;shortcutSignature=signature;shortcuts.replaceChildren();for(const key of selected){const info=desktopTools[key];if(!info)continue;const b=button(document,info.title,'rail-shortcut-'+key,info.icon,'icon-button');b.onclick=()=>options.launch?.(key);shortcuts.append(b);}}
   if(!options.tool){const more=button(document,'工具箱','rail-tools','plus','icon-button');more.onclick=()=>options.tools?.();rail.append(more);}
   if(options.tool){rail.hidden=true;quotaSection.hidden=true;}
   root.append(chip, rail, drawer);
@@ -554,7 +557,7 @@ function mountPanel(win:Window,options:PanelOptions):PanelApi|null {
       const previousRevision = state?.revision;
       const previousLocale = state?.settings.locale;
       const stateChanged = !state || state.revision !== message.state.revision || state.settings.locale !== message.state.settings.locale;
-      state = message.state; quota = message.quota;
+      state = message.state; quota = message.quota;renderShortcuts();
       translator.language(zh());translator.setHistory(state.translations??[]);
       nativeTheme?.setEnabled(state.settings.enabled.theme !== false, state.settings.enabled.motion !== false, state.settings.enabled.motion === true);
       workspaces?.setEnabled(state.settings.enabled.workspaces !== false);

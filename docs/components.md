@@ -1,5 +1,18 @@
 # Component development
 
+## Grouped toolbox and personal shortcuts (alpha.21)
+
+The toolbox groups tools into learning/focus, conversation/review, records/resources
+and appearance/input. Each tool has a separate pin button: pinning does not launch
+it. Pins are stored in `settings.shortcuts`, preserve selection order and sync
+through ordinary revision-checked snapshots. The bottom rail keeps notes,
+bookmarks, translation and the toolbox, adding chosen tools before the plus button.
+Unpinning removes only the shortcut, not its tool data or open panel. The custom
+mobile entry remains hidden. A bounded horizontal scroll keeps a full rail inside
+narrow windows. All 157 tests passed; browser acceptance covered pin, launch,
+unpin and all tools pinned at 430px with no page overflow or page errors. The live
+desktop showed the four groups and 13 pin controls on alpha.21.
+
 ## Study timer (alpha.20)
 
 Open **＋ → 学习计时**. Add named study or break blocks with 1–180 minutes
