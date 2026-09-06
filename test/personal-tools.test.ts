@@ -6,6 +6,19 @@ import {setTimeout as delay} from 'node:timers/promises';
 import {createPersonalTools,insertComposer} from '../src/renderer/personal-tools.js';
 import type {BridgeRequest,StoredState} from '../src/shared/types.js';
 const a='11111111-1111-4111-8111-111111111111',b='22222222-2222-4222-8222-222222222222';
+test('cross-conversation pin retains editor nodes, stays closed when dismissed, and unpins into the current task',async()=>{
+ const f=setup();try{
+  f.tools.open('snippets');f.button('新建').click();const field=f.shadow.querySelector('textarea')!;field.value='pinned draft';
+  const pin=f.shadow.querySelector<HTMLButtonElement>('[data-testid="pin-window-snippets"]');assert.ok(pin);pin.click();
+  const scope=f.win.document.querySelector('[data-above-composer-conversation-id]')!,drawer=f.shadow.querySelector<HTMLElement>('[data-tool="snippets"]')!;
+  scope.setAttribute('data-above-composer-conversation-id',b);await delay(390);
+  assert.equal(drawer.hidden,false);assert.equal(f.shadow.querySelector('textarea'),field);assert.equal(field.value,'pinned draft');assert.equal(pin.getAttribute('aria-pressed'),'true');
+  f.shadow.querySelector<HTMLButtonElement>('[data-testid="close-snippets"]')!.click();scope.setAttribute('data-above-composer-conversation-id',a);await delay(390);assert.equal(drawer.hidden,true);
+  f.tools.open('snippets');assert.equal(f.shadow.querySelector('textarea'),field);pin.click();
+  scope.setAttribute('data-above-composer-conversation-id',b);await delay(390);assert.equal(drawer.hidden,true);
+  scope.setAttribute('data-above-composer-conversation-id',a);await delay(390);assert.equal(drawer.hidden,false);assert.equal(f.shadow.querySelector('textarea'),field);
+ }finally{f.close();}
+});
 function setup(){
  const dom=new JSDOM(`<div data-above-composer-conversation-id="${a}"></div><div data-codex-composer="true" contenteditable="true">existing draft</div>`,{url:'https://sidecar.example',pretendToBeVisual:true});
  const win=dom.window as unknown as Window,requests:BridgeRequest[]=[];win.__codexSidecarSend=json=>requests.push(JSON.parse(json));
@@ -24,6 +37,20 @@ test('personal editors preserve their actual draft nodes and independent visibil
   scope.setAttribute('data-above-composer-conversation-id',a);await delay(390);
   assert.equal(f.shadow.querySelector('textarea'),field);assert.equal(field.value,'unsaved snippet');
  }finally{f.close();}
+});
+
+test('timer pin survives a remount in this window and does not change the global running timer or another window',async()=>{
+ const f=setup(),other=setup();try{
+  f.state.timer={queue:[],current:{id:a,title:'Study',kind:'study',minutes:25,status:'running',remainingMs:1500000,endsAt:Date.now()+1500000}};f.snapshot();f.tools.open('timer');
+  f.shadow.querySelector<HTMLButtonElement>('[data-testid="pin-window-timer"]')!.click();
+  const marker=f.win.document.querySelector('[data-above-composer-conversation-id]')!;marker.setAttribute('data-above-composer-conversation-id',b);await delay(390);
+  assert.equal(f.shadow.querySelector<HTMLElement>('[data-tool="timer"]')!.hidden,false);assert.equal(f.requests.length,0);
+  f.tools.destroy();const remount=createPersonalTools(f.win,()=>{});try{
+   const shadow=f.win.document.getElementById('codex-sidecar-personal-tools')!.shadowRoot!;
+   assert.equal(shadow.querySelector<HTMLElement>('[data-tool="timer"]')!.hidden,false);assert.equal(shadow.querySelector('[data-testid="pin-window-timer"]')?.getAttribute('aria-pressed'),'true');
+   other.tools.open('timer');assert.equal(other.shadow.querySelector('[data-testid="pin-window-timer"]')?.getAttribute('aria-pressed'),'false');
+  }finally{remount.destroy();}
+ }finally{f.close();other.close();}
 });
 test('snippet insertion preserves native composer editing and never submits a message',()=>{
  const f=setup();try{let calls:unknown[]=[];f.win.document.execCommand=(...args)=>{calls=args;return true;};assert.equal(insertComposer(f.win,'new text'),true);assert.deepEqual(calls,['insertText',false,'\n\nnew text']);assert.equal(f.requests.length,0);}finally{f.close();}

@@ -1,6 +1,13 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {JSDOM} from 'jsdom';
 import {clampFrame,changeFrame,readFrame,createFloatingFrame} from '../src/renderer/floating.js';
 const bounds={width:1200,height:900,top:94},start={x:700,y:250,width:390,height:500};
+test('pinned geometry is window-local and can be carried into a new conversation without moving',()=>{
+ const f=fixture();try{
+  f.api.activate('a');f.api.carry('$pinned',true);f.pointer(f.header,'pointerdown',700,250);f.pointer(f.win,'pointermove',500,150);f.pointer(f.win,'pointerup',500,150);
+  assert.deepEqual(f.api.current(),{...start,x:500,y:150});assert.equal(f.win.localStorage.getItem('codex-sidecar.frame.v1.conversation.$pinned'),null);
+  f.remount();f.api.activate('$pinned',false,true);assert.equal(f.api.current()?.x,500);f.api.carry('b');f.api.activate('a');assert.equal(f.api.current(),null);f.api.activate('b');assert.equal(f.api.current()?.x,500);
+ }finally{f.close();}
+});
 test('movement stays visible and oversized saved layouts fit a smaller viewport',()=>{
  assert.deepEqual(changeFrame(start,'move',900,-900,bounds),{...start,x:794,y:94});
  const small=clampFrame(start,{width:300,height:330,top:94});assert.deepEqual(small,{x:16,y:94,width:268,height:220});

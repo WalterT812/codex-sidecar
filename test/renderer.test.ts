@@ -11,6 +11,17 @@ const makeState = (): StoredState => ({
   notes: [], bookmarks: [],
 });
 const unknownQuota = (): QuotaSnapshot => ({ fetchedAt: new Date().toISOString(), windows: [] });
+test('notes and translation can be pinned independently across native task changes',async()=>{
+ const app=setup({native:true,demo:false});try{
+  const marker=app.win.document.createElement('div');marker.setAttribute('data-above-composer-conversation-id','11111111-1111-4111-8111-111111111111');app.win.document.getElementById('root')!.append(marker);await new Promise(r=>setTimeout(r,0));
+  app.query('rail-notes').click();app.query('pin-window-notes').click();app.query('rail-translation').click();
+  const translation=app.win.document.getElementById('codex-sidecar-root-translation')!.shadowRoot!;
+  marker.setAttribute('data-above-composer-conversation-id','22222222-2222-4222-8222-222222222222');await new Promise(r=>setTimeout(r,0));
+  assert.equal(app.query('drawer').hidden,false);assert.equal((translation.querySelector('[data-testid="drawer"]') as HTMLElement).hidden,true);
+  app.query('pin-window-notes').click();marker.setAttribute('data-above-composer-conversation-id','33333333-3333-4333-8333-333333333333');await new Promise(r=>setTimeout(r,0));assert.equal(app.query('drawer').hidden,true);
+  marker.setAttribute('data-above-composer-conversation-id','22222222-2222-4222-8222-222222222222');await new Promise(r=>setTimeout(r,0));assert.equal(app.query('drawer').hidden,false);
+ }finally{app.close();}
+});
 test('bookmark strips hide full excerpts and retain separately labeled times and deletion',()=>{
  const state=makeState();state.settings.locale='zh-CN';state.bookmarks=[{id:'11111111-1111-4111-8111-111111111111',title:'Compact summary',url:'https://example.com',excerpt:'Very long original kept only in the editor',createdAt:'2026-09-06T00:00:00.000Z',messageAt:'2026-09-05T00:00:00.000Z'}];const app=setup({state});try{app.query('rail-bookmarks').click();const shadow=app.win.document.getElementById('codex-sidecar-root-bookmarks')!.shadowRoot!;assert.equal(shadow.querySelector('.card-body'),null);assert.deepEqual([...shadow.querySelectorAll('time')].map(n=>n.dateTime),[state.bookmarks[0]!.messageAt,state.bookmarks[0]!.createdAt]);assert.match(shadow.querySelector('.bookmark-times')!.textContent!,/消息.*收藏/);assert.ok(shadow.querySelector('[data-testid="bookmark-delete"]'));(shadow.querySelector('[data-testid="bookmark-edit"]') as HTMLButtonElement).click();assert.equal((shadow.querySelector('[data-testid="editor-body"]') as HTMLTextAreaElement).value,state.bookmarks[0]!.excerpt);}finally{app.close();}
 });

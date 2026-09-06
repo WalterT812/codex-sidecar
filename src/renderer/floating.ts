@@ -23,12 +23,12 @@ export function changeFrame(start:Frame,kind:string,dx:number,dy:number,b:Bounds
  * the last saved frame is only a default for newly opened windows. */
 export function createFloatingFrame(win:Window,drawer:HTMLElement,header:HTMLElement,bounds:()=>Bounds,layout:()=>void,key=KEY){
  const baseKey=key;
- let preferred:Frame|null=null;
+ let preferred:Frame|null=null,sessionOnly=false;
  try{const own=win.sessionStorage.getItem(key);preferred=readFrame(own===null?win.localStorage.getItem(key):own);win.sessionStorage.setItem(key,JSON.stringify(preferred));}catch{}
  let drag:{id:number;kind:string;x:number;y:number;start:Frame;before:Frame|null;capture:HTMLElement}|null=null;
  const handles:HTMLElement[]=[];
  const measured=():Frame=>{const r=drawer.getBoundingClientRect();return{x:r.x,y:r.y,width:r.width,height:r.height};};
- function save(){try{win.sessionStorage.setItem(key,JSON.stringify(preferred));}catch{}try{if(preferred)win.localStorage.setItem(key,JSON.stringify(preferred));else win.localStorage.removeItem(key);}catch{}}
+ function save(){try{win.sessionStorage.setItem(key,JSON.stringify(preferred));}catch{}if(sessionOnly)return;try{if(preferred)win.localStorage.setItem(key,JSON.stringify(preferred));else win.localStorage.removeItem(key);}catch{}}
  function reset(){preferred=null;save();layout();}
  function finish(cancel=false){if(!drag)return;const previous=drag;drag=null;if(cancel)preferred=previous.before;else save();try{previous.capture.releasePointerCapture?.(previous.id);}catch{}drawer.classList.remove('manipulating');layout();}
  function down(event:PointerEvent,kind:string){
@@ -65,11 +65,12 @@ export function createFloatingFrame(win:Window,drawer:HTMLElement,header:HTMLEle
  return{
   get interacting(){return !!drag;},
   current():Frame|null{return preferred?clampFrame(preferred,bounds()):null;},
-  activate(scope:string,inherit=false){
-   finish(true);const prior=preferred;key=baseKey+'.conversation.'+scope;preferred=null;
-   try{const own=win.sessionStorage.getItem(key),raw=own===null?win.localStorage.getItem(key):own;preferred=raw===null&&inherit?prior:readFrame(raw);win.sessionStorage.setItem(key,JSON.stringify(preferred));}catch{if(inherit)preferred=prior;}
+  activate(scope:string,inherit=false,windowOnly=false){
+   finish(true);sessionOnly=windowOnly;const prior=preferred;key=baseKey+'.conversation.'+scope;preferred=null;
+   try{const own=win.sessionStorage.getItem(key),raw=own===null&&!sessionOnly?win.localStorage.getItem(key):own;preferred=raw===null&&inherit?prior:readFrame(raw);win.sessionStorage.setItem(key,JSON.stringify(preferred));}catch{if(inherit)preferred=prior;}
    layout();
   },
+  carry(scope:string,windowOnly=false){finish();preferred=preferred??measured();key=baseKey+'.conversation.'+scope;sessionOnly=windowOnly;save();layout();},
   reset,
   destroy(){finish(true);header.removeEventListener('pointerdown',startMove);header.removeEventListener('dblclick',doubleClick);drawer.removeEventListener('keydown',keys);win.removeEventListener('pointermove',move,true);win.removeEventListener('pointerup',up,true);win.removeEventListener('pointercancel',cancel,true);win.removeEventListener('blur',blur);handles.forEach(h=>h.remove());},
  };

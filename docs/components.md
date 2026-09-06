@@ -83,3 +83,8 @@ Toolbox title is 16px, collapsible category labels are 13px at weight 500, and t
 ### Reset cards (alpha.24)
 
 The quota chip and quota panel show the available rate-limit reset card count. Hover for each available card expiry in Australia/Brisbane time. This uses the existing read-only account/rateLimits/read response and refresh cadence. Currency credit balance is not treated as cards. Missing counts/expiries are marked unavailable; stale snapshots are labeled. No redeem or purchase operation is exposed.
+### Cross-conversation window pin (alpha.25)
+
+Each floating tool has a header pin labeled “跨对话固定”. A pinned tool keeps its open/closed state, geometry, and current editor across conversation changes. Closing it keeps it closed until explicitly reopened; unpinning attaches the current window to the current conversation. Unpinned tools keep their existing conversation layouts.
+
+Pin preferences and pinned geometry use session storage only, so another desktop window does not inherit them. Sidecar reconnects in the same browser window restore the pin and visibility; unsaved editor contents are retained during conversation switches, not across renderer reloads. Timer state continues to use the existing shared deadline-based clock and is independent of window visibility. Header pins are separate from toolbox shortcut pins.

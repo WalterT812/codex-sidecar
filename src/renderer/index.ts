@@ -12,7 +12,8 @@ import { createTranslator } from './translator.js';
 import { createWorkspaces } from './workspaces.js';
 import {drawerPlacement} from './placement.js';
 import {createFloatingFrame} from './floating.js';
-import {createConversationLayouts,type ToolKind} from './conversation-layouts.js';
+import {conversationScope,createConversationLayouts,type ToolKind} from './conversation-layouts.js';
+import {createWindowPin,readWindowPin} from './window-pin.js';
 
 declare const __SIDECAR_ART_URL__: string;
 declare const __SIDECAR_WALLPAPER_URL__: string;
@@ -65,7 +66,7 @@ export function mountSidecar(win:Window):SidecarApi|null{
   for(const kind of ['bookmarks','translation'] as const){const panel=panels.get(kind);if(panel)panel.activate(scope,layouts.isOpen(kind));else if(layouts.isOpen(kind))ensure(kind);}
  });
  const initialScope=layouts.scope;primary.activate(initialScope,layouts.isOpen('notes'),true);
- for(const kind of ['bookmarks','translation'] as const)if(layouts.isOpen(kind))ensure(kind);
+ for(const kind of ['bookmarks','translation'] as const)if(layouts.isOpen(kind)||readWindowPin(win,kind))ensure(kind);
  const personal=createPersonalTools(win,text=>{const panel=ensure('translation');panel?.setTranslation(text);panel?.show();},front);
  const api:SidecarApi={receive(message){if(message.type==='snapshot')snapshot=message;personal.receive(message);primary.receive(message);for(const panel of panels.values())panel.receive(message);},destroy(){personal.destroy();layouts.destroy();primary.destroy();for(const panel of panels.values())panel.destroy();panels.clear();if(win.__CODEX_SIDECAR__===api)delete win.__CODEX_SIDECAR__;}};
  api.mobile=createMobileAccess(win);
@@ -147,7 +148,11 @@ function mountPanel(win:Window,options:PanelOptions):PanelApi|null {
   const actions = element(document, 'div', 'header-actions');
   const settingsButton = button(document, 'Settings', 'settings-open', 'settings', 'icon-button');
   const closeButton = button(document, 'Close', 'drawer-close', 'close', 'icon-button');
-  actions.append(settingsButton, closeButton);
+  const windowPin=createWindowPin(win,options.tool??'notes',pinned=>{
+    floating.carry(pinned?'$pinned':conversationScope(document),pinned);
+    if(!pinned)options.visibility?.(opened);
+  });
+  actions.append(settingsButton, windowPin.button, closeButton);
   header.append(brandMark, brand, actions);
   const quotaSection = element(document, 'section', 'quota-section');
   quotaSection.dataset.testid = 'quota-summary';
@@ -176,6 +181,7 @@ function mountPanel(win:Window,options:PanelOptions):PanelApi|null {
   shadow.append(style, root);
   document.body.append(host);
   const floating=createFloatingFrame(win,drawer,header,()=>({width:win.innerWidth,height:win.innerHeight,top:anchor.getBoundingClientRect().bottom+12}),positionDrawer,'codex-sidecar.frame.v1'+(options.tool?'.'+options.tool:''));
+  if(windowPin.pinned){floating.activate('$pinned',false,true);setOpen(windowPin.open,false,false);}
   host.addEventListener('pointerdown',()=>{drawer.style.zIndex=host.style.zIndex=String(options.front?.()??2147400000);},true);
 
   function send(action: Action, payload: Record<string, unknown> = {}, done?: (message:Extract<HostMessage,{type:'result'}>) => void, fail?: (error:Error)=>void): void {
@@ -210,7 +216,8 @@ function mountPanel(win:Window,options:PanelOptions):PanelApi|null {
   function setOpen(value: boolean, focus = false, remember = true): void {
     cancel(hoverTimer);
     opened = value;
-    if(remember)options.visibility?.(value);
+    if(windowPin.pinned)windowPin.setOpen(value);
+    else if(remember)options.visibility?.(value);
     if(value)drawer.style.zIndex=host.style.zIndex=String(options.front?.()??2147400000);
     positionDrawer();
     drawer.hidden = !value;
@@ -551,7 +558,7 @@ function mountPanel(win:Window,options:PanelOptions):PanelApi|null {
   const clock = win.setInterval(renderQuota, 30_000);
   const api: PanelApi = {
     setTranslation(text){translator.setText(text);},
-    activate(scope,open,inherit){floating.activate(scope,inherit);setOpen(open,false,false);},
+    activate(scope,open,inherit){if(windowPin.pinned)return;floating.activate(scope,inherit);setOpen(open,false,false);},
     show(next){if(next)view=next;renderNavigation();renderContent();setOpen(true,true);},
     receive(message): void {
       if (destroyed) return;

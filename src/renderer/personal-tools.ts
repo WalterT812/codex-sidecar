@@ -8,6 +8,7 @@ import {styles} from './styles.js';
 import {royalStyles} from './royal-styles.js';
 import {createFloatingFrame} from './floating.js';
 import {conversationScope} from './conversation-layouts.js';
+import {createWindowPin,readWindowPin} from './window-pin.js';
 import {createAppearance,defaultAppearance} from './appearance.js';
 import {createNativeAccess} from './native.js';
 import {createSourceNavigator,sourceMessages,selectedSource} from './sources.js';
@@ -18,7 +19,7 @@ type Kind=keyof typeof titles;
 // Mobile use has moved to official Remote. Keep the optional bridge and data,
 // but do not offer or restore the retired pairing panel in the desktop UI.
 const visibleTool=(kind:Kind)=>kind!=='mobile';
-interface Panel {drawer:HTMLElement;body:HTMLElement;status:HTMLElement;frame:ReturnType<typeof createFloatingFrame>;scope:string;layout:()=>void;refresh?:()=>void}
+interface Panel {drawer:HTMLElement;body:HTMLElement;status:HTMLElement;frame:ReturnType<typeof createFloatingFrame>;pin:ReturnType<typeof createWindowPin>;scope:string;layout:()=>void;refresh?:()=>void}
 export interface ReadMessage {source:MessageAnchor;role:string;text:string}
 export function messagesFromTurns(threadId:string,turns:any[]):ReadMessage[] {
  const rows:ReadMessage[]=[];
@@ -50,7 +51,7 @@ export function createPersonalTools(win:Window,openTranslation:(text:string)=>vo
  shadow.append(style);doc.body.append(host);
  const panels=new Map<Kind,Panel>(),openByScope=new Map<string,Kind[]>();
  try{const saved=JSON.parse(win.sessionStorage.getItem('codex-sidecar.personal-open.v1')??'[]');for(const [key,value] of saved)if(typeof key==='string'&&Array.isArray(value))openByScope.set(key,value.filter((k:Kind)=>k in titles&&visibleTool(k)));}catch{}
- const remember=()=>{openByScope.set(scope,[...panels].filter(([,p])=>!p.drawer.hidden).map(([k])=>k));while(openByScope.size>100)openByScope.delete(openByScope.keys().next().value!);try{win.sessionStorage.setItem('codex-sidecar.personal-open.v1',JSON.stringify([...openByScope]));}catch{}};
+ const remember=()=>{const prior=openByScope.get(scope)??[];openByScope.set(scope,[...panels].filter(([k,p])=>p.pin.pinned?prior.includes(k):!p.drawer.hidden).map(([k])=>k));while(openByScope.size>100)openByScope.delete(openByScope.keys().next().value!);try{win.sessionStorage.setItem('codex-sidecar.personal-open.v1',JSON.stringify([...openByScope]));}catch{}};
  function request(action:Action,payload:Record<string,unknown>):Promise<Result> {
   return new Promise((resolve,reject)=>{
    if(!win.__codexSidecarSend){reject(Error('Sidecar 尚未连接'));return;}
@@ -72,13 +73,16 @@ export function createPersonalTools(win:Window,openTranslation:(text:string)=>vo
   const status=element(doc,'div','status');status.hidden=true;status.setAttribute('role','status');const body=element(doc,'div','content');drawer.append(header,status,body);shadow.append(drawer);
   const bounds=()=>({width:win.innerWidth,height:win.innerHeight,top:Math.max(60,doc.querySelector('header[data-app-shell-header-layout]')?.getBoundingClientRect().bottom??60)+10});
   const layout=()=>{const f=frame.current();if(f){Object.assign(drawer.style,{left:f.x+'px',top:f.y+'px',right:'auto',bottom:'auto',width:f.width+'px',height:f.height+'px',maxHeight:f.height+'px'});}};
-  const frame=createFloatingFrame(win,drawer,header,bounds,layout,'codex-sidecar.frame.v1.'+kind);frame.activate(scope);panel={drawer,body,status,frame,scope,layout};panels.set(kind,panel);
-  drawer.addEventListener('pointerdown',()=>{drawer.style.zIndex=host.style.zIndex=String(front?.()??++layer);});close.onclick=()=>{drawer.hidden=true;remember();};
-  drawer.addEventListener('keydown',e=>{if(e.key==='Escape'){e.stopPropagation();drawer.hidden=true;remember();}});return panel;
+  const frame=createFloatingFrame(win,drawer,header,bounds,layout,'codex-sidecar.frame.v1.'+kind);
+  const pin=createWindowPin(win,kind,pinned=>{frame.carry(pinned?'$pinned':scope,pinned);if(!pinned)panel!.scope=scope;remember();});header.insertBefore(pin.button,close);
+  frame.activate(pin.pinned?'$pinned':scope,false,pin.pinned);panel={drawer,body,status,frame,pin,scope,layout};panels.set(kind,panel);
+  const hide=()=>{drawer.hidden=true;pin.setOpen(false);remember();};
+  drawer.addEventListener('pointerdown',()=>{drawer.style.zIndex=host.style.zIndex=String(front?.()??++layer);});close.onclick=hide;
+  drawer.addEventListener('keydown',e=>{if(e.key==='Escape'){e.stopPropagation();hide();}});return panel;
  }
  const views=new Map<Panel,Map<string,{nodes:Node[];refresh?:()=>void}>>();
  function activatePanel(p:Panel,next:string){if(p.drawer.dataset.tool==='timer'){p.scope=next;return;}if(p.scope===next)return;let cache=views.get(p);if(!cache){cache=new Map();views.set(p,cache);}cache.set(p.scope,{nodes:[...p.body.childNodes],refresh:p.refresh});while(cache.size>30)cache.delete(cache.keys().next().value!);const saved=cache.get(next);p.scope=next;p.body.replaceChildren(...saved?.nodes??[]);p.refresh=saved?.refresh;}
- function open(kind:Kind|ShortcutTool='tools') {if(kind==='focus'){appearance.setFocus(true);return;}if(!visibleTool(kind))return;const p=make(kind);activatePanel(p,scope);p.drawer.hidden=false;p.drawer.style.zIndex=host.style.zIndex=String(front?.()??++layer);if(!p.body.childNodes.length)render(kind,p);if(kind==='timer')p.body.scrollTop=0;remember();}
+ function open(kind:Kind|ShortcutTool='tools') {if(kind==='focus'){appearance.setFocus(true);return;}if(!visibleTool(kind))return;const p=make(kind);if(!p.pin.pinned)activatePanel(p,scope);p.drawer.hidden=false;p.pin.setOpen(true);p.drawer.style.zIndex=host.style.zIndex=String(front?.()??++layer);if(!p.body.childNodes.length)render(kind,p);if(kind==='timer')p.body.scrollTop=0;remember();}
  function render(kind:Kind,p:Panel) {
   p.body.replaceChildren();tell(p,'');p.refresh=undefined;
   if(kind==='tools') {
@@ -136,7 +140,7 @@ export function createPersonalTools(win:Window,openTranslation:(text:string)=>vo
   const currentScope=scope;let records:ReadMessage[]=sourceMessages(doc).filter(r=>r.role==='user').map(r=>({source:r.anchor,role:r.role,text:r.text})),cursor:string|null=null;
   const draw=()=>{list.replaceChildren();for(const [i,row] of records.entries()){const entry=element(doc,'button','entry');entry.append(element(doc,'small','',String(i+1).padStart(2,'0')),element(doc,'p','',row.text.slice(0,180)));entry.onclick=()=>act(p,()=>navigator.go(row.source));list.append(entry);}};draw();
   const more=control('读取更早的问题',()=>act(p,async()=>{const result=await readMessages(currentScope,cursor??undefined);records=[...result.rows.filter(r=>r.role==='user'),...records].filter((r,i,all)=>all.findIndex(x=>x.source.messageId===r.source.messageId)===i);cursor=result.cursor;draw();more.disabled=!cursor;}));p.body.prepend(more);
-  p.refresh=()=>{records=sourceMessages(doc).filter(r=>r.role==='user').map(r=>({source:r.anchor,role:r.role,text:r.text}));draw();};
+  p.refresh=()=>{if(conversationScope(doc)!==currentScope)return;records=sourceMessages(doc).filter(r=>r.role==='user').map(r=>({source:r.anchor,role:r.role,text:r.text}));draw();};
  }
  function renderSearch(p:Panel) {
   p.body.append(element(doc,'p','help','可以描述你记得的内容。先搜索原文；描述太长时可让 Sol 提炼关键词。'));
@@ -216,8 +220,9 @@ export function createPersonalTools(win:Window,openTranslation:(text:string)=>vo
  const hover=(e:MouseEvent)=>{if(!e.target || !(e.target as Element).closest)return;const target=e.target as Element;if(target.closest('#codex-sidecar-personal-tools'))return;const node=target.closest('[data-response-annotation-target],[data-local-conversation-user-anchor]');hovered=node?sourceMessages(doc).find(r=>r.node===node):undefined;if(!hovered){whole.hidden=true;return;}const rect=hovered.node.getBoundingClientRect();whole.hidden=false;refreshBookmarkButtons();whole.style.left=Math.max(10,Math.min(rect.right-86,win.innerWidth-95))+'px';whole.style.top=Math.max(65,rect.top-28)+'px';};doc.addEventListener('mouseover',hover);
  const onScroll=()=>{toolbar.hidden=true;whole.hidden=true;};doc.addEventListener('scroll',onScroll,true);
  const reflow=()=>{for(const p of panels.values())p.layout();};win.addEventListener('resize',reflow);
- const interval=win.setInterval(()=>{const next=conversationScope(doc);if(next!==scope){remember();scope=next;appearance.setFocus(false);for(const [key,p] of panels){p.drawer.hidden=!(openByScope.get(scope)??[]).includes(key);p.frame.activate(scope);if(!p.drawer.hidden){activatePanel(p,scope);if(!p.body.childNodes.length)render(key,p);}}for(const key of openByScope.get(scope)??[])if(!panels.has(key))open(key);toolbar.hidden=whole.hidden=true;}},350);
- for(const kind of openByScope.get(scope)??[])open(kind);
+ const interval=win.setInterval(()=>{const next=conversationScope(doc);if(next!==scope){remember();scope=next;appearance.setFocus(false);for(const [key,p] of panels){if(p.pin.pinned)continue;p.drawer.hidden=!(openByScope.get(scope)??[]).includes(key);p.frame.activate(scope);if(!p.drawer.hidden){activatePanel(p,scope);if(!p.body.childNodes.length)render(key,p);}}for(const key of openByScope.get(scope)??[])if(!panels.has(key)&&!readWindowPin(win,key))open(key);toolbar.hidden=whole.hidden=true;}},350);
+ const restore=new Set([...openByScope.get(scope)??[],...Object.keys(titles).filter(k=>visibleTool(k as Kind)&&readWindowPin(win,k)?.open) as Kind[]]);
+ for(const kind of restore){const pinned=readWindowPin(win,kind);if(!pinned||pinned.open)open(kind);}
  return {
   open,navigate:navigator.go,captureBookmark,
   receive(message:HostMessage){if(message.type==='result'){const operation=pending.get(message.id);if(operation){pending.delete(message.id);win.clearTimeout(operation.timer);if(message.ok)operation.resolve(message);else operation.reject(Error(message.error??'操作失败'));}}else{const changed=state?.revision!==message.state.revision;state=message.state;studyTimer.receive(state.timer);refreshBookmarkButtons();if(changed)appearance.apply(state.settings.appearance);if(changed)for(const p of panels.values())p.refresh?.();}},
