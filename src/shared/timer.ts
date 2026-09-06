@@ -1,7 +1,7 @@
 export interface StudyBlock { id:string; title:string; minutes:number; kind:'study'|'break' }
 export interface ActiveBlock extends StudyBlock { status:'running'|'paused'|'finished'; remainingMs:number; endsAt:number|null }
 export interface StudyTimer { queue:StudyBlock[]; current:ActiveBlock|null }
-export type TimerCommand = {op:'add';title:string;minutes:number;kind:'study'|'break'} | {op:'remove'|'up';id:string} | {op:'start'|'pause'|'finish'|'dismiss'};
+export type TimerCommand = {op:'add';title:string;minutes:number;kind:'study'|'break'} | {op:'remove'|'up';id:string} | {op:'move';id:string;to:number} | {op:'start'|'pause'|'finish'|'dismiss'};
 const MAX_MS=180*60_000;
 function object(value:unknown,keys:string[]):Record<string,unknown>{
  if(!value||typeof value!=='object'||Array.isArray(value))throw Error('Invalid timer data');
@@ -27,7 +27,8 @@ export function validateTimer(value:unknown):StudyTimer {
 }
 export function timerCommand(value:unknown):TimerCommand {
  const op=(value as any)?.op;
- const keys=op==='add'?['op','title','minutes','kind']:['remove','up'].includes(op)?['op','id']:['op'];const r=object(value,keys);
+ const keys=op==='add'?['op','title','minutes','kind']:op==='move'?['op','id','to']:['remove','up'].includes(op)?['op','id']:['op'];const r=object(value,keys);
+ if(op==='move'){if(typeof r.id!=='string'||!/^[a-zA-Z0-9-]{1,64}$/.test(r.id)||!Number.isInteger(r.to)||Number(r.to)<0||Number(r.to)>29)throw Error('Invalid timer move');return {op,id:r.id,to:r.to as number};}
  if(op==='add'){const b=block({id:'validate',title:r.title,minutes:r.minutes,kind:r.kind});return {op,title:b.title.trim(),minutes:b.minutes,kind:b.kind};}
  if(op==='remove'||op==='up'){if(typeof r.id!=='string'||!/^[a-zA-Z0-9-]{1,64}$/.test(r.id))throw Error('Invalid timer block');return {op,id:r.id};}
  if(!['start','pause','finish','dismiss'].includes(op))throw Error('Unknown timer operation');return {op} as TimerCommand;
@@ -41,6 +42,7 @@ export function changeTimer(value:StudyTimer|undefined,command:TimerCommand,now:
  const t=validateTimer(value??{queue:[],current:null});
  if(timerDone(t.current,now))t.current={...t.current!,status:'finished',remainingMs:0,endsAt:null};
  switch(command.op){
+  case 'move': {const index=t.queue.findIndex(b=>b.id===command.id);if(index<0||command.to<0||command.to>=t.queue.length||!Number.isInteger(command.to))throw Error('学习块已被更改，请重试');const [b]=t.queue.splice(index,1);t.queue.splice(command.to,0,b!);break;}
   case 'add': if(t.queue.length>=30)throw Error('最多安排 30 个学习块');t.queue.push({id,title:command.title,minutes:command.minutes,kind:command.kind});break;
   case 'remove': case 'up': {const index=t.queue.findIndex(b=>b.id===command.id);if(index<0)throw Error('学习块已被更改，请重试');if(command.op==='remove')t.queue.splice(index,1);else if(index>0)[t.queue[index-1],t.queue[index]]=[t.queue[index]!,t.queue[index-1]!];break;}
   case 'start': {

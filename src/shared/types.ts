@@ -4,7 +4,7 @@ import type {MessageAnchor} from './anchors.js';
 export interface Appearance {font: 'harmony'|'system'|'yahei'; size:number; lineHeight:number; opacity:number; wallpaper:number}
 export interface ToolRecord {id:string;kind:'snippet'|'decision'|'resource'|'learning'|'idea';title:string;body:string;status:'active'|'superseded'|'done'|'pending';source?:MessageAnchor;details?:string;createdAt:string;updatedAt:string}
 export interface Note { id: string; title: string; body: string; threadUrl?: string; createdAt: string; updatedAt: string }
-export interface Bookmark { id: string; title: string; url: string; excerpt: string; source?: MessageAnchor; createdAt: string }
+export interface Bookmark { id: string; title: string; url: string; excerpt: string; source?: MessageAnchor; messageAt?:string; createdAt: string }
 export interface Settings { locale: 'zh-CN' | 'en'; enabled: { quota: boolean; notes: boolean; bookmarks: boolean; artwork?: boolean; theme?: boolean; motion?: boolean; translation?: boolean; workspaces?: boolean }; panelPinned: boolean; shortcuts?:ShortcutTool[]; appearance?:Appearance }
 export interface TranslationRecord { id:string; text:string; translation:string; source:string; target:string; createdAt:string; model:string }
 export interface StoredState { version: 1; revision: number; settings: Settings; notes: Note[]; bookmarks: Bookmark[]; translations?:TranslationRecord[]; library?:ToolRecord[]; timer?:StudyTimer }

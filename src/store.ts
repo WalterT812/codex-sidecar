@@ -11,7 +11,7 @@ const MAX_STORE_BYTES = 2000000;
 const COMPONENTS = ['quota', 'notes', 'bookmarks', 'artwork', 'theme', 'motion', 'translation', 'workspaces'] as const;
 const MUTATIONS = ['note.save', 'note.delete', 'bookmark.save', 'bookmark.delete', 'settings.patch', 'translation.clear', 'library.save', 'library.delete', 'timer.command'] as const;
 type MutationAction = typeof MUTATIONS[number];
-type PreparedMutation = { action: MutationAction; revision: number; id?: string; title?: string; body?: string; threadUrl?: string; url?: string; excerpt?: string; source?:MessageAnchor; timerCommand?:TimerCommand; library?: Omit<ToolRecord,'id'|'createdAt'|'updatedAt'>; settings?: Partial<Omit<Settings, 'enabled'>> & { enabled?: Partial<Settings['enabled']> } };
+type PreparedMutation = { action: MutationAction; revision: number; id?: string; title?: string; body?: string; threadUrl?: string; url?: string; excerpt?: string; source?:MessageAnchor; messageAt?:string; timerCommand?:TimerCommand; library?: Omit<ToolRecord,'id'|'createdAt'|'updatedAt'>; settings?: Partial<Omit<Settings, 'enabled'>> & { enabled?: Partial<Settings['enabled']> } };
 
 function record(value: unknown, label: string, allowed: readonly string[], required: readonly string[] = []): Record<string, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${label} must be an object`);
@@ -112,8 +112,8 @@ function validateState(value: unknown): StoredState {
     };
   });
   const bookmarks: Bookmark[] = state.bookmarks.map(value => {
-    const bookmark = record(value, 'bookmark', ['id', 'title', 'url', 'excerpt', 'source', 'createdAt'], ['id', 'title', 'url', 'excerpt', 'createdAt']);
-    return { id: savedId(bookmark.id), title: string(bookmark.title, 'title', 200), url: validateLink(bookmark.url), excerpt: string(bookmark.excerpt, 'excerpt', 10000), ...(bookmark.source!==undefined?{source:validateAnchor(bookmark.source)}:{}), createdAt: date(bookmark.createdAt, 'createdAt') };
+    const bookmark = record(value, 'bookmark', ['id', 'title', 'url', 'excerpt', 'source', 'messageAt', 'createdAt'], ['id', 'title', 'url', 'excerpt', 'createdAt']);
+    return { id: savedId(bookmark.id), title: string(bookmark.title, 'title', 200), url: validateLink(bookmark.url), excerpt: string(bookmark.excerpt, 'excerpt', 10000), ...(bookmark.source!==undefined?{source:validateAnchor(bookmark.source)}:{}), ...(bookmark.messageAt!==undefined?{messageAt:date(bookmark.messageAt,'messageAt')}:{}), createdAt: date(bookmark.createdAt, 'createdAt') };
   });
   const optional: Partial<Settings['enabled']> = {};
   let translations:TranslationRecord[]|undefined;
@@ -132,7 +132,7 @@ function prepareMutation(action: string, input: unknown): PreparedMutation {
   if (!MUTATIONS.includes(action as MutationAction)) throw new Error('Unknown storage action');
   const keys: Record<MutationAction, readonly string[]> = {
     'note.save': ['revision', 'id', 'title', 'body', 'threadUrl'], 'note.delete': ['revision', 'id'],
-    'bookmark.save': ['revision', 'id', 'title', 'url', 'excerpt', 'source'], 'bookmark.delete': ['revision', 'id'],
+    'bookmark.save': ['revision', 'id', 'title', 'url', 'excerpt', 'source', 'messageAt'], 'bookmark.delete': ['revision', 'id'],
     'settings.patch': ['revision', 'enabled', 'locale', 'panelPinned', 'appearance', 'shortcuts'],
     'translation.clear':['revision'], 'timer.command':['revision','command'],
     'library.save':['revision','id','kind','title','body','status','source','details'], 'library.delete':['revision','id'],
@@ -148,7 +148,7 @@ function prepareMutation(action: string, input: unknown): PreparedMutation {
   } else if (action === 'library.save') {
     prepared.library=libraryRecord(payload);
   } else if (action === 'bookmark.save') {
-    prepared.title = string(payload.title, 'title', 200); prepared.url = validateLink(payload.url); prepared.excerpt = string(payload.excerpt, 'excerpt', 10000);if(payload.source!==undefined)prepared.source=validateAnchor(payload.source);
+    prepared.title = string(payload.title, 'title', 200); prepared.url = validateLink(payload.url); prepared.excerpt = string(payload.excerpt, 'excerpt', 10000);if(payload.source!==undefined)prepared.source=validateAnchor(payload.source);if(payload.messageAt!==undefined)prepared.messageAt=date(payload.messageAt,'messageAt');
   } else if (action === 'settings.patch') {
     prepared.settings = {};
     if(payload.appearance!==undefined)prepared.settings.appearance=appearance(payload.appearance);
@@ -188,7 +188,8 @@ function applyMutation(state: StoredState, change: PreparedMutation): void {
     const note: Note = { id, title: change.title!, body: change.body!, createdAt, updatedAt: now, ...(change.threadUrl !== undefined ? { threadUrl: change.threadUrl } : {}) };
     if (index < 0) state.notes.push(note); else state.notes[index] = note;
   } else {
-    const bookmark: Bookmark = { id, title: change.title!, url: change.url!, excerpt: change.excerpt!, ...(change.source?{source:change.source}:{}), createdAt };
+    const previous=state.bookmarks[index];const messageAt=change.messageAt??(previous?.source?.threadId===change.source?.threadId&&previous?.source?.messageId===change.source?.messageId?previous?.messageAt:undefined);
+    const bookmark: Bookmark = { ...(messageAt?{messageAt}:{}), id, title: change.title!, url: change.url!, excerpt: change.excerpt!, ...(change.source?{source:change.source}:{}), createdAt };
     if (index < 0) state.bookmarks.push(bookmark); else state.bookmarks[index] = bookmark;
   }
 }

@@ -5,10 +5,13 @@ import {validateCommand} from '../mobile/protocol.js';
 // Unknown bundles fail closed; ordinary Sidecar notes/theme remain usable.
 const BUNDLE = 'app://-/assets/app-initial-14e7352db43a.js';
 const PRIMARY = 'app://-/assets/app-primary-cf3627f46e1e.js';
+const CURRENT_BUNDLE='app://-/assets/app-initial-d2e74794629d.js';
+const CURRENT_PRIMARY='app://-/assets/app-primary-809d1fa17f2d.js';
 type NativeModule = Record<string, any>;
 export function createNativeAccess(win: Window) {
   let module: Promise<NativeModule> | undefined;
-  const load = () => module ??= import(/* @vite-ignore */ BUNDLE);
+  let primaryPath=PRIMARY;
+  const load = () => module ??= (async()=>{try{const m=await import(/* @vite-ignore */ CURRENT_BUNDLE);if(!m.b1t||typeof m.v1t!=='function'||!m.Tun||typeof m.PWt!=='function')throw Error('Unsupported native exports');primaryPath=CURRENT_PRIMARY;return {...m,h1t:m.b1t,p1t:m.v1t,bun:m.Tun,kWt:m.PWt};}catch{return import(/* @vite-ignore */ BUNDLE);}})();
   function scope(m: NativeModule): any {
     const nodes = [win.document.querySelector('[data-thread-find-target="conversation"]'), win.document.querySelector('[data-codex-composer="true"]'), win.document.querySelector('main')];
     for (const node of nodes) {
@@ -51,7 +54,7 @@ export function createNativeAccess(win: Window) {
     }
   }
   async function reveal(anchor:MessageAnchor) {
-    const m=await load(), primary=await import(/* @vite-ignore */ PRIMARY);
+    const m=await load(), primary=await import(/* @vite-ignore */ primaryPath);
     // Read the native registered reveal controller through its registration API.
     // The synthetic scope only captures the atom; it never replaces the controller.
     let atom:unknown;

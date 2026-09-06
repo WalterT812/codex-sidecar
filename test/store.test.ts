@@ -12,6 +12,13 @@ async function fixture(t: test.TestContext) {
   return join(dir, 'state.json');
 }
 
+test('bookmark message time stays separate from saved time and survives title edits and reload',async t=>{
+ const path=await fixture(t),store=await StateStore.open(path),source={threadId:'11111111-1111-4111-8111-111111111111',messageId:'msg1',quote:'original'};
+ await store.mutate('bookmark.save',{revision:0,title:'Summary',url:'codex://threads/'+source.threadId,excerpt:'original',source,messageAt:'2026-09-01T00:00:00.000Z'});const before=store.snapshot.bookmarks[0]!;
+ await store.mutate('bookmark.save',{revision:1,id:before.id,title:'Edited summary',url:before.url,excerpt:before.excerpt,source});const restored=(await StateStore.open(path)).snapshot.bookmarks[0]!;assert.equal(restored.messageAt,before.messageAt);assert.equal(restored.createdAt,before.createdAt);assert.notEqual(restored.messageAt,restored.createdAt);
+ await assert.rejects(store.mutate('bookmark.save',{revision:2,id:before.id,title:'No',url:before.url,excerpt:'x',messageAt:'yesterday'}));
+});
+
 test('desktop shortcut choices preserve order on reload and reject hidden or duplicate tools',async t=>{
  const path=await fixture(t),store=await StateStore.open(path);
  await store.mutate('settings.patch',{revision:0,shortcuts:['timer','outline','focus']});

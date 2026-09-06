@@ -50,7 +50,7 @@ interface PanelOptions { launch?:(tool:ShortcutTool)=>void; tools?:()=>void; sou
 /** One bridge receiver owns all tool windows; each window keeps its own draft. */
 export function mountSidecar(win:Window):SidecarApi|null{
  win.__CODEX_SIDECAR__?.destroy();
- const panels=new Map<ToolKind,PanelApi>();let snapshot:Extract<HostMessage,{type:'snapshot'}>|undefined;let layer=2147483000;
+ const panels=new Map<ToolKind,PanelApi>();let snapshot:Extract<HostMessage,{type:'snapshot'}>|undefined;let layer=2147400000;
  const front=()=>++layer;
  const ensure=(kind:'bookmarks'|'translation')=>{
   let panel=panels.get(kind);
@@ -65,7 +65,7 @@ export function mountSidecar(win:Window):SidecarApi|null{
  });
  const initialScope=layouts.scope;primary.activate(initialScope,layouts.isOpen('notes'),true);
  for(const kind of ['bookmarks','translation'] as const)if(layouts.isOpen(kind))ensure(kind);
- const personal=createPersonalTools(win,text=>{const panel=ensure('translation');panel?.setTranslation(text);panel?.show();});
+ const personal=createPersonalTools(win,text=>{const panel=ensure('translation');panel?.setTranslation(text);panel?.show();},front);
  const api:SidecarApi={receive(message){if(message.type==='snapshot')snapshot=message;personal.receive(message);primary.receive(message);for(const panel of panels.values())panel.receive(message);},destroy(){personal.destroy();layouts.destroy();primary.destroy();for(const panel of panels.values())panel.destroy();panels.clear();if(win.__CODEX_SIDECAR__===api)delete win.__CODEX_SIDECAR__;}};
  api.mobile=createMobileAccess(win);
  win.__CODEX_SIDECAR__=api;return api;
@@ -116,7 +116,7 @@ function mountPanel(win:Window,options:PanelOptions):PanelApi|null {
   const host = element(document, 'div');
   host.id = rootId;
   host.dataset.testid = 'sidecar-root';
-  host.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:2147483000;isolation:isolate;';
+  host.style.cssText = 'display:contents;pointer-events:none;';
   const shadow = host.attachShadow({ mode: 'open' });
   const style = element(document, 'style');
   style.textContent = styles + royalStyles;
@@ -130,6 +130,7 @@ function mountPanel(win:Window,options:PanelOptions):PanelApi|null {
   trigger.setAttribute('aria-expanded', 'false');
   trigger.setAttribute('aria-controls', 'sidecar-drawer');
   const drawer = element(document, 'section', 'drawer');
+  if(options.tool==='bookmarks')drawer.classList.add('bookmarks-drawer');
   drawer.id = 'sidecar-drawer';
   drawer.dataset.testid = 'drawer';
   drawer.setAttribute('role', 'complementary');
@@ -174,7 +175,7 @@ function mountPanel(win:Window,options:PanelOptions):PanelApi|null {
   shadow.append(style, root);
   document.body.append(host);
   const floating=createFloatingFrame(win,drawer,header,()=>({width:win.innerWidth,height:win.innerHeight,top:anchor.getBoundingClientRect().bottom+12}),positionDrawer,'codex-sidecar.frame.v1'+(options.tool?'.'+options.tool:''));
-  host.addEventListener('pointerdown',()=>{host.style.zIndex=String(options.front?.()??2147483000);},true);
+  host.addEventListener('pointerdown',()=>{drawer.style.zIndex=host.style.zIndex=String(options.front?.()??2147400000);},true);
 
   function send(action: Action, payload: Record<string, unknown> = {}, done?: (message:Extract<HostMessage,{type:'result'}>) => void, fail?: (error:Error)=>void): void {
     if (destroyed) return;
@@ -209,7 +210,7 @@ function mountPanel(win:Window,options:PanelOptions):PanelApi|null {
     cancel(hoverTimer);
     opened = value;
     if(remember)options.visibility?.(value);
-    if(value)host.style.zIndex=String(options.front?.()??2147483000);
+    if(value)drawer.style.zIndex=host.style.zIndex=String(options.front?.()??2147400000);
     positionDrawer();
     drawer.hidden = !value;
     trigger.setAttribute('aria-expanded', String(value));
@@ -283,6 +284,7 @@ function mountPanel(win:Window,options:PanelOptions):PanelApi|null {
     if(destroyed)return;
     const obstacles=Array.from(document.querySelectorAll<HTMLElement>('[data-pip-obstacle="thread-summary-panel"]')).filter(node=>win.getComputedStyle(node).display!=='none').map(node=>node.getBoundingClientRect());
     const placement=drawerPlacement(win.innerWidth,win.innerHeight,obstacles,anchor!.getBoundingClientRect().bottom);
+    if(options.tool==='bookmarks'){placement.width=Math.max(0,Math.min(520,win.innerWidth-32));placement.height=Math.min(360,placement.height);}
     const custom=floating.current();
     if(custom){
       drawer.style.left=custom.x+'px';drawer.style.top=custom.y+'px';drawer.style.right=drawer.style.bottom='auto';
@@ -402,7 +404,7 @@ function mountPanel(win:Window,options:PanelOptions):PanelApi|null {
     renderArtwork();
     const kind = view === 'notes' ? 'note' : 'bookmark';
     const top = element(document, 'div', 'content-top');
-    top.append(element(document, 'p', 'eyebrow', view === 'notes' ? t('捕捉一闪而过的想法', 'THOUGHTS TO COME BACK TO') : t('把值得回看的对话留在这里', 'CONVERSATIONS WORTH KEEPING')));
+    top.append(element(document, 'p', 'eyebrow', view === 'notes' ? t('捕捉一闪而过的想法', 'THOUGHTS TO COME BACK TO') : t(`已收藏 ${state.bookmarks.length} 条`, `${state.bookmarks.length} bookmarks`)));
     const add = button(document, view === 'notes' ? t('新便签', 'New note') : t('新书签', 'New bookmark'), `new-${kind}`, 'plus');
     add.onclick = () => startDraft(kind); top.append(add); content.append(top);
     const items: (Note | Bookmark)[] = [...state[view]];
@@ -416,18 +418,23 @@ function mountPanel(win:Window,options:PanelOptions):PanelApi|null {
     const list = element(document, 'div', 'items');
     for (const item of items.sort((a, b) => ('updatedAt' in b ? b.updatedAt : b.createdAt).localeCompare('updatedAt' in a ? a.updatedAt : a.createdAt))) {
       const card = element(document, 'article', 'card'); card.dataset.testid = `${kind}-card`; card.dataset.id = item.id;
+      if(kind==='bookmark')card.classList.add('bookmark-strip');
       const open = button(document, item.title || t('未命名', 'Untitled'), `${kind}-edit`, undefined, 'card-open');
-      open.replaceChildren(element(document, 'h3', 'card-title', item.title || t('未命名', 'Untitled')), element(document, 'p', 'card-body', 'body' in item ? item.body : item.excerpt));
+      const summary=(item.title||t('未命名','Untitled')).replace(/\s+/g,' ').trim();
+      open.replaceChildren(...(kind==='bookmark'?[icon(document,'bookmark')]:[]),element(document, 'h3', 'card-title',summary), ...(kind==='note'?[element(document, 'p', 'card-body', 'body' in item ? item.body : item.excerpt)]:[]));open.title=summary;
       open.onclick = () => startDraft(kind, item);
       const meta = element(document, 'div', 'card-meta');
-      meta.append(element(document, 'span', 'grow', dateLabel('updatedAt' in item ? item.updatedAt : item.createdAt, zh() ? 'zh-CN' : 'en')));
+      if(kind==='bookmark'){
+        const times=element(document,'div','bookmark-times');const dateText=(value:string)=>new Date(value).toLocaleString(zh()?'zh-CN':'en-AU',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit',hour12:false});
+        const original=(item as Bookmark).messageAt;for(const [label,value]of [[t('消息','Message'),original],[t('收藏','Saved'),item.createdAt]]){const stamp=element(document,'time','',label+' '+(value?dateText(value):t('未知','unknown')));if(value){stamp.dateTime=value;stamp.title=new Date(value).toLocaleString(zh()?'zh-CN':'en-AU');}else stamp.title=t('原消息未提供可核验的时间','The original message time is unavailable');times.append(stamp);}meta.append(times);
+      }else meta.append(element(document, 'span', 'grow', dateLabel('updatedAt' in item ? item.updatedAt : item.createdAt, zh() ? 'zh-CN' : 'en')));
       const url = 'url' in item ? item.url : item.threadUrl;
       if (url && validLink(url)) {
-        const visit = button(document, t('source' in item && item.source?'回到原消息':'打开原链接', 'Open original'), `${kind}-open`, 'arrow');
+        const visit = button(document, t('source' in item && item.source?'回到原消息':'打开原链接', 'Open original'), `${kind}-open`, 'arrow',kind==='bookmark'?'icon-button bookmark-action':'button');
         visit.onclick = () => {if('source' in item&&item.source&&options.source)void options.source(item.source).catch(error=>setError(error.message));else send('open.link', { url });}; meta.append(visit);
       }
       if (kind === 'bookmark') {
-        const remove = button(document, t('删除', 'Delete'), 'bookmark-delete', 'trash');
+        const remove = button(document, t('删除', 'Delete'), 'bookmark-delete', 'trash','icon-button bookmark-action');
         remove.setAttribute('aria-label', t('删除收藏：', 'Delete bookmark: ') + item.title);
         remove.onclick = () => { if (state) send('bookmark.delete', { id: item.id, revision: state.revision }, renderContent); };
         meta.append(remove);

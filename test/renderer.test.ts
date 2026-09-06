@@ -11,6 +11,9 @@ const makeState = (): StoredState => ({
   notes: [], bookmarks: [],
 });
 const unknownQuota = (): QuotaSnapshot => ({ fetchedAt: new Date().toISOString(), windows: [] });
+test('bookmark strips hide full excerpts and retain separately labeled times and deletion',()=>{
+ const state=makeState();state.settings.locale='zh-CN';state.bookmarks=[{id:'11111111-1111-4111-8111-111111111111',title:'Compact summary',url:'https://example.com',excerpt:'Very long original kept only in the editor',createdAt:'2026-09-06T00:00:00.000Z',messageAt:'2026-09-05T00:00:00.000Z'}];const app=setup({state});try{app.query('rail-bookmarks').click();const shadow=app.win.document.getElementById('codex-sidecar-root-bookmarks')!.shadowRoot!;assert.equal(shadow.querySelector('.card-body'),null);assert.deepEqual([...shadow.querySelectorAll('time')].map(n=>n.dateTime),[state.bookmarks[0]!.messageAt,state.bookmarks[0]!.createdAt]);assert.match(shadow.querySelector('.bookmark-times')!.textContent!,/消息.*收藏/);assert.ok(shadow.querySelector('[data-testid="bookmark-delete"]'));(shadow.querySelector('[data-testid="bookmark-edit"]') as HTMLButtonElement).click();assert.equal((shadow.querySelector('[data-testid="editor-body"]') as HTMLTextAreaElement).value,state.bookmarks[0]!.excerpt);}finally{app.close();}
+});
 function setup(options: { state?: StoredState; quota?: QuotaSnapshot; demo?: boolean; native?: boolean } = {}) {
   const body = options.native ? '<div id="root"><main id="native-chat" data-app-shell-main-surface="default"><header data-pip-obstacle="app-shell-header" data-app-shell-header-layout="default"></header><textarea>Native conversation input</textarea></main></div>' : '<header id="sidecar-demo-titlebar"><button>Native action</button></header><main id="native-chat"><textarea>Native conversation input</textarea></main>';
   const dom = new JSDOM(`<!doctype html><html><body>${body}</body></html>`, { url: 'https://sidecar-demo.example/', pretendToBeVisual: true });
@@ -58,7 +61,7 @@ test('mount is idempotent, handshake is sent, and destroy leaves native content 
 test('grouped tools pin independently, launch from the rail, and unpin on a shared snapshot',()=>{
  const app=setup();try{
   app.query('rail-tools').click();const personal=app.win.document.getElementById('codex-sidecar-personal-tools')!.shadowRoot!;
-  assert.deepEqual([...personal.querySelectorAll('.tool-group-title')].map(n=>n.textContent),['学习与专注','对话与回顾','记录与资料','外观与输入']);
+  assert.deepEqual([...personal.querySelectorAll('.group-label')].map(n=>n.textContent),['学习与专注','对话与回顾','记录与资料','外观与输入']);
   assert.equal(personal.querySelector('[data-testid="personal-手机入口"]'),null);
   const pin=personal.querySelector<HTMLButtonElement>('[data-testid="pin-tool-timer"]')!;pin.click();pin.click();
   const request=app.requests.at(-1)!;assert.equal(request.action,'settings.patch');assert.deepEqual(request.payload,{shortcuts:['timer'],revision:7});
@@ -436,6 +439,10 @@ test('notes, bookmarks and translation open concurrently without duplicate visib
   app.query('rail-bookmarks').click();assert.equal((book.querySelector('[data-testid="editor-title"]') as HTMLInputElement).value,'My bookmark');assert.equal((translation.querySelector('[data-testid="translate-input"]') as HTMLTextAreaElement).value,'Preserve my translation');
   app.api.destroy();assert.equal(doc.querySelectorAll('[id^="codex-sidecar-root"]').length,0);
  }finally{app.close()}
+});
+
+test('opening a bookmark panel can bring it above an already opened personal toolbox',()=>{
+ const app=setup();try{app.query('rail-tools').click();const personal=app.win.document.getElementById('codex-sidecar-personal-tools')!;app.query('rail-bookmarks').click();const bookmarks=app.win.document.getElementById('codex-sidecar-root-bookmarks')!;assert.ok(Number(bookmarks.style.zIndex)>Number(personal.style.zIndex));app.query('rail-tools').click();assert.ok(Number(personal.style.zIndex)>Number(bookmarks.style.zIndex));}finally{app.close();}
 });
 test('translation results are delivered only to the requesting tool window',async()=>{
  const app=setup();try{

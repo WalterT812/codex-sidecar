@@ -65,3 +65,13 @@ the live desktop showed a Delete button on the saved card and an inactive
 Alpha.14 introduces per-tool shadow panels and a separate appearance stylesheet. Personal views retain draft DOM nodes across task switches. Whole-message and selection bookmarks use validated native message/turn IDs; a versioned adapter reads the already-running desktop manager and its reveal controller. It does not create a replacement app-server for conversation execution.
 
 The optional mobile bridge exposes only list/read/send to the outbound relay. It never accepts method names, arbitrary scripts or shell commands from the server. Phone sends use the native follow-up coordinator; other host actions remain separately allowlisted. See [mobile protocol and limitations](mobile.md).
+
+
+## Pearl tools redesign (alpha.22)
+
+- Toolbox uses single-column tool rows within four independently collapsible groups. Collapse choices are local UI preferences; quick-launch pins remain shared saved settings.
+- Study timer uses a circular remaining-time dial. Drag a queue handle or focus it and press Up/Down to reorder upcoming blocks. Current countdown and deadline are untouched. Add a block through the folding form; expiry still requires a deliberate next start.
+- Bookmarks are compact one-line summaries. Source text is retained in the editor and original-message link. Message time and saved time are distinct; hover a time for its full date. Unknown original times are explicitly labeled unknown.
+- New long message bookmarks ask the existing ephemeral Sol medium helper for a short summary; if it is unavailable, the original title prefix is retained so saving is not lost. The helper sees only the selected source text and cannot use tools.
+- Original timestamps are resolved from the requested conversation's local rollout only: exact message ID first, then a unique sufficiently long quotation inside the exact turn. Ambiguous matches stay unknown. No turn completion date is substituted. Local transcripts above 64 MiB are skipped.
+- Added native adapter for Codex 26.901.4073.0, retaining the prior known bundle fallback. No installed Codex application files are modified.
