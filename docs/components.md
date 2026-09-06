@@ -79,3 +79,7 @@ The optional mobile bridge exposes only list/read/send to the outbound relay. It
 ### Toolbox typography follow-up (alpha.23)
 
 Toolbox title is 16px, collapsible category labels are 13px at weight 500, and tool names are 14px. Click target sizes and other panels are unchanged.
+
+### Reset cards (alpha.24)
+
+The quota chip and quota panel show the available rate-limit reset card count. Hover for each available card expiry in Australia/Brisbane time. This uses the existing read-only account/rateLimits/read response and refresh cadence. Currency credit balance is not treated as cards. Missing counts/expiries are marked unavailable; stale snapshots are labeled. No redeem or purchase operation is exposed.

@@ -4,6 +4,7 @@ import {createMobileAccess} from './mobile.js';
 import type {MessageAnchor} from '../shared/anchors.js';
 import type { Action, Bookmark, HostMessage, Note, QuotaSnapshot, StoredState } from '../shared/types.js';
 import { button, currentThreadUrl, dateLabel, element, icon, periodLabel, validLink } from './components.js';
+import {resetCreditsLabel,resetCreditsTooltip} from './reset-credits.js';
 import { styles } from './styles.js';
 import { royalStyles } from './royal-styles.js';
 import { createNativeTheme } from './theme.js';
@@ -310,8 +311,10 @@ function mountPanel(win:Window,options:PanelOptions):PanelApi|null {
     chip.classList.toggle('stale', stale);
     const periods = windows.slice(0, 2).map(item => `${periodLabel(item.windowDurationMins, item.label, false)} ${item.remainingPercent === null ? '—' : `${Math.round(item.remainingPercent)}%`}`).join(' · ');
     const summary = periods ? `Codex · ${periods}` : '';
-    chip.replaceChildren(icon(document, 'spark'), element(document, 'span', '', `${demo ? 'DEMO · ' : ''}${stale ? t('已过期 · ', 'Stale · ') : ''}${summary || t('额度未知', 'Quota unknown')}`));
-    chip.setAttribute('aria-label', `${t('打开 Sidecar，剩余额度：', 'Open Sidecar, quota remaining: ')}${summary || t('未知', 'unknown')}`);
+    const cards=resetCreditsLabel(quota?.resetCredits,zh()),cardDetails=resetCreditsTooltip(quota?.resetCredits,zh(),stale);
+    chip.replaceChildren(icon(document, 'spark'), element(document, 'span', 'quota-chip-copy', `${demo ? 'DEMO · ' : ''}${stale ? t('已过期 · ', 'Stale · ') : ''}${summary || t('额度未知', 'Quota unknown')}`),element(document,'span','quota-chip-cards',' · '+cards));
+    chip.title=(summary?summary+'\n':'')+cardDetails;
+    chip.setAttribute('aria-label', `${t('打开 Sidecar，剩余额度：', 'Open Sidecar, quota remaining: ')}${summary || t('未知', 'unknown')} · ${cards}`);
     quotaSection.replaceChildren();
     const heading = element(document, 'div', 'section-heading');
     heading.append(element(document, 'span', 'grow', t('剩余额度', 'QUOTA REMAINING')));
@@ -340,6 +343,7 @@ function mountPanel(win:Window,options:PanelOptions):PanelApi|null {
       }
       quotaSection.append(grid);
     } else quotaSection.append(element(document, 'p', 'quota-unavailable', t('额度暂时未知', 'Quota is currently unavailable')));
+    const cardRow=element(document,'div','quota-cards');cardRow.dataset.testid='quota-cards';cardRow.tabIndex=0;cardRow.title=cardDetails;cardRow.setAttribute('aria-label',cardDetails);cardRow.append(element(document,'span','',t('充值卡','Reset cards')),element(document,'strong','',cards));quotaSection.append(cardRow);
     const caption = quota?.error ? `${t('刷新失败：', 'Refresh failed: ')}${quota.error}` : stale ? t('数据已过期，请刷新后查看。', 'This data is stale. Refresh to update.') : quota?.fetchedAt ? `${t('更新于 ', 'Updated ')}${dateLabel(quota.fetchedAt, zh() ? 'zh-CN' : 'en')}` : t('连接后读取真实账户额度', 'Account quota will appear once connected');
     quotaSection.append(element(document, 'p', 'quota-foot', caption));
     positionChip();

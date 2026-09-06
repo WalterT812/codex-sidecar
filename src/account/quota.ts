@@ -52,6 +52,17 @@ export function normalizeQuota(raw: unknown, now = new Date()): QuotaSnapshot {
   const snapshot: QuotaSnapshot = { fetchedAt: now.toISOString(), windows: [] };
   const response = asObject(raw);
   if (!response) return snapshot;
+  const resets=asObject(response.rateLimitResetCredits);
+  if(resets){
+    const count=finiteNumber(resets.availableCount),seen=new Set<string>();
+    const credits=(Array.isArray(resets.credits)?resets.credits:[]).slice(0,500).flatMap(value=>{
+      const credit=asObject(value);if(!credit||credit.status!=='available'||credit.resetType!=='codexRateLimits')return [];
+      if(typeof credit.id==='string'){if(seen.has(credit.id))return [];seen.add(credit.id);}
+      const expires=finiteNumber(credit.expiresAt);
+      return [{expiresAt:expires!==null&&expires>=0&&Number.isFinite(new Date(expires*1000).getTime())?expires:null}];
+    }).sort((a,b)=>(a.expiresAt??Infinity)-(b.expiresAt??Infinity));
+    snapshot.resetCredits={availableCount:count!==null&&Number.isSafeInteger(count)&&count>=0?count:null,credits};
+  }
 
   if (response.rateLimitsByLimitId !== undefined && response.rateLimitsByLimitId !== null) {
     // An empty modern mapping is authoritative. Do not resurrect legacy data.

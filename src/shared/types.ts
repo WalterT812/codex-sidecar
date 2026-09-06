@@ -9,7 +9,8 @@ export interface Settings { locale: 'zh-CN' | 'en'; enabled: { quota: boolean; n
 export interface TranslationRecord { id:string; text:string; translation:string; source:string; target:string; createdAt:string; model:string }
 export interface StoredState { version: 1; revision: number; settings: Settings; notes: Note[]; bookmarks: Bookmark[]; translations?:TranslationRecord[]; library?:ToolRecord[]; timer?:StudyTimer }
 export interface QuotaWindow { id: string; label: string; usedPercent: number | null; remainingPercent: number | null; resetsAt: number | null; windowDurationMins: number | null }
-export interface QuotaSnapshot { fetchedAt: string; windows: QuotaWindow[]; error?: string }
+export interface ResetCredits { availableCount:number|null; credits:{expiresAt:number|null}[] }
+export interface QuotaSnapshot { fetchedAt: string; windows: QuotaWindow[]; resetCredits?:ResetCredits; error?: string }
 export type Action = 'ui.ready' | 'note.save' | 'note.delete' | 'bookmark.save' | 'bookmark.delete' | 'settings.patch' | 'quota.refresh' | 'open.link' | 'ui.detach' | 'translate' | 'translation.clear' | 'library.save' | 'library.delete' | 'assist' | 'mobile' | 'resource.reveal' | 'timer.command';
 export interface BridgeRequest { id: string; action: Action; payload: Record<string, unknown> }
 export type HostMessage = { type: 'snapshot'; state: StoredState; quota: QuotaSnapshot } | { type: 'result'; id: string; ok: boolean; error?: string; translation?: string; text?:string; data?:unknown };
