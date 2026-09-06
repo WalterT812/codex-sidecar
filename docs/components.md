@@ -75,3 +75,7 @@ The optional mobile bridge exposes only list/read/send to the outbound relay. It
 - New long message bookmarks ask the existing ephemeral Sol medium helper for a short summary; if it is unavailable, the original title prefix is retained so saving is not lost. The helper sees only the selected source text and cannot use tools.
 - Original timestamps are resolved from the requested conversation's local rollout only: exact message ID first, then a unique sufficiently long quotation inside the exact turn. Ambiguous matches stay unknown. No turn completion date is substituted. Local transcripts above 64 MiB are skipped.
 - Added native adapter for Codex 26.901.4073.0, retaining the prior known bundle fallback. No installed Codex application files are modified.
+
+### Toolbox typography follow-up (alpha.23)
+
+Toolbox title is 16px, collapsible category labels are 13px at weight 500, and tool names are 14px. Click target sizes and other panels are unchanged.

@@ -21,7 +21,7 @@ import type { HostMessage, QuotaSnapshot } from './shared/types.js';
 
 const exec = promisify(execFile);
 const readBookmarkTime=createBookmarkTimeReader();
-export const VERSION = '0.1.0-alpha.22';
+export const VERSION = '0.1.0-alpha.23';
 const PAGE_HEALTH = "Boolean(window.__CODEX_SIDECAR__ && document.getElementById('codex-sidecar-root')?.isConnected)";
 export async function availablePort() {
   const server = createServer();
